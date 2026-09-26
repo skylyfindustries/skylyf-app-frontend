@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skylyf_machine/core/api.dart';
 import 'package:skylyf_machine/core/models.dart';
 import 'package:skylyf_machine/core/theme.dart';
 
@@ -9,6 +10,7 @@ Map<String, dynamic> machineJson(String status, {num speed = 0}) => {
     };
 
 void main() {
+  machineDetailsTest();
   test('Machine parses API json and labels each status', () {
     final m = Machine.fromJson(machineJson('running', speed: 180));
     expect(m.speedUnit, 'Cups/min');
@@ -47,5 +49,19 @@ void main() {
     expect(fmt(87500), '87,500');
     expect(fmt(999), '999');
     expect(fmt(1234567.4), '1,234,567');
+  });
+}
+
+void machineDetailsTest() {
+  test('machine parses the details and photos entered in the dashboard', () {
+    final m = Machine.fromJson({
+      'id': '1', 'code': 'SKYLYF-001', 'typeKey': 'paper_cup', 'typeName': 'Paper Cup', 'status': 'idle', 'speed': 0, 'speedUnit': 'Cups/min', 'outputUnit': 'Cups',
+      'todayProduction': 0, 'todayTarget': 0, 'efficiency': 0,
+      'name': 'Cup Maker', 'productionSpeed': '200 cups/min', 'cupSize': '3 oz – 16 oz', 'paperRequired': '140–350 GSM', 'photos': ['/api/v1/uploads/a.jpg'],
+    });
+    expect(m.name, 'Cup Maker');
+    expect(m.cupSize, '3 oz – 16 oz');
+    expect(photoUrl(m.photos.first), endsWith('/api/v1/uploads/a.jpg'));
+    expect(Machine.fromJson({...{'id': '2', 'code': 'X', 'typeKey': 't', 'typeName': 't', 'status': 'idle', 'speed': 0, 'speedUnit': '', 'outputUnit': '', 'todayProduction': 0, 'todayTarget': 0, 'efficiency': 0}}).photos, isEmpty);
   });
 }

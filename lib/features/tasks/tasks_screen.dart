@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/feedback.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -47,15 +48,20 @@ class _RequestSheetState extends ConsumerState<_RequestSheet> {
   bool get _valid => _techId != null && _note.text.trim().length >= 3;
 
   Future<void> _submit() async {
-    setState(() { _busy = true; _error = null; });
-    try {
-      await ref.read(apiProvider).post('/machines/${widget.machineId}/maintenance', {'note': _note.text.trim(), 'technicianId': _techId!, 'priority': _priority});
-      ref.invalidate(ticketsProvider(widget.machineId));
-      ref.invalidate(tasksProvider);
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) setState(() { _busy = false; _error = '$e'; });
-    }
+    final ok = await guarded(
+      context,
+      title: 'Request service',
+      confirm: 'Send this service request to the technician?',
+      action: 'Yes, send',
+      success: 'The service request was sent.',
+      busy: (b) => setState(() => _busy = b),
+      run: () async {
+        await ref.read(apiProvider).post('/machines/${widget.machineId}/maintenance', {'note': _note.text.trim(), 'technicianId': _techId!, 'priority': _priority});
+        ref.invalidate(ticketsProvider(widget.machineId));
+        ref.invalidate(tasksProvider);
+      },
+    );
+    if (ok && mounted) Navigator.pop(context, true);
   }
 
   @override
@@ -81,13 +87,13 @@ class _RequestSheetState extends ConsumerState<_RequestSheet> {
           const SizedBox(height: 6),
           Segments<String>(options: const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High')], value: _priority, onChanged: (v) => setState(() => _priority = v)),
           const SizedBox(height: 14),
-          TextField(
+          above('What is the problem?', TextField(
             controller: _note,
             maxLines: 3,
             maxLength: 500,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(labelText: 'What is the problem?', alignLabelWithHint: true),
-          ),
+            decoration: const InputDecoration(alignLabelWithHint: true),
+          )),
           if (_error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!, style: const TextStyle(color: Brand.stopped, fontWeight: FontWeight.w600))),
           const SizedBox(height: 6),
           FilledButton.icon(
@@ -176,7 +182,7 @@ class _TaskCard extends StatelessWidget {
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: statusTint(k.status).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+              decoration: glassTint(statusTint(k.status), 20),
               child: Text(_statusLabel[k.status]!.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5, color: statusTint(k.status))),
             ),
           ]),

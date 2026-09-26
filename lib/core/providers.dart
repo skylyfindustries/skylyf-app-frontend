@@ -42,8 +42,9 @@ class AuthNotifier extends Notifier<Session> {
     ref.read(roleProvider.notifier).set(Role.parse(me['user']['role']));
   }
 
-  Future<void> login(String identifier, String password) async {
-    await ref.read(apiProvider).login(identifier, password);
+  /// Any sign-in method (password, OTP, passkey, authenticator, register): [method] stores the tokens, then the server-side role is loaded.
+  Future<void> signIn(Future<void> Function(Api api) method) async {
+    await method(ref.read(apiProvider));
     await _loadRole();
     state = Session.active;
   }
@@ -98,6 +99,30 @@ final reportProvider = FutureProvider.autoDispose.family<ReportData, ReportKey>(
   return ReportData.fromJson(await ref.watch(apiProvider).get('/reports', query: {'range': k.range, 'kind': k.kind, if (plant != null) 'plantId': plant}));
 });
 
+/// Table reports (machines / assignments / service): { title, cols, rows } from the server, ready to export.
+final tableReportProvider = FutureProvider.autoDispose.family<({String title, List<String> cols, List<List<String>> rows}), ReportKey>((ref, k) async {
+  final j = await ref.watch(apiProvider).get('/reports/table', query: {'range': k.range, 'kind': k.kind});
+  return (
+    title: j['title'] as String,
+    cols: [for (final c in j['cols']) '$c'],
+    rows: [for (final r in j['rows']) [for (final v in r) '$v']],
+  );
+});
+
+/// Assignments of one day (YYYY-MM-DD): the whole company for an owner, only mine for a technician.
+final assignmentsProvider = FutureProvider.autoDispose.family<List<Assignment>, String>((ref, date) async {
+  final rows = await ref.watch(apiProvider).get('/assignments', query: {'date': date}) as List;
+  return [for (final r in rows) Assignment.fromJson(r)];
+});
+
+/// The technician's own tasks: a week back to two weeks ahead ("My tasks").
+final myTasksProvider = FutureProvider.autoDispose<List<Assignment>>((ref) async {
+  String ymd(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  final now = DateTime.now();
+  final rows = await ref.watch(apiProvider).get('/assignments', query: {'from': ymd(now.subtract(const Duration(days: 7))), 'to': ymd(now.add(const Duration(days: 14)))}) as List;
+  return [for (final r in rows) Assignment.fromJson(r)];
+});
+
 final alertsProvider = FutureProvider.autoDispose<List<AlertItem>>((ref) async {
   final rows = await ref.watch(apiProvider).get('/alerts') as List;
   return [for (final r in rows) AlertItem.fromJson(r)];
@@ -143,6 +168,9 @@ final catalogProvider = FutureProvider.autoDispose<List<CatalogItem>>((ref) asyn
   final rows = await ref.watch(apiProvider).get('/catalog') as List;
   return [for (final r in rows) CatalogItem.fromJson(r)];
 });
+
+/// Machines available to register: every machine model Skylyf sells (photos, price, details).
+final storeProvider = FutureProvider.autoDispose<List<StoreItem>>((ref) async => [for (final c in await ref.watch(catalogProvider.future)) StoreItem.fromCatalog(c)]);
 
 final registrationsProvider = FutureProvider.autoDispose<List<Registration>>((ref) async {
   final rows = await ref.watch(apiProvider).get('/registrations') as List;

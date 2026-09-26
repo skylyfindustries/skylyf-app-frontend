@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Light theme. Palette sampled from the Skylyf logo (navy wordmark + gold "LYF"), on warm cream.
 /// See docs/04-design-system.md.
@@ -49,7 +50,9 @@ ThemeData buildTheme() {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: Colors.transparent,
-    textTheme: Typography.material2021().black.apply(bodyColor: Brand.ink, displayColor: Brand.ink),
+    // DM Sans, downloaded on first use and cached (falls back to the system font while offline)
+    fontFamily: GoogleFonts.dmSans().fontFamily,
+    textTheme: GoogleFonts.dmSansTextTheme(Typography.material2021().black.apply(bodyColor: Brand.ink, displayColor: Brand.ink)),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,
       elevation: 0,
@@ -58,19 +61,21 @@ ThemeData buildTheme() {
       foregroundColor: Brand.ink,
       systemOverlayStyle: SystemUiOverlayStyle(statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.dark, statusBarBrightness: Brightness.light),
     ),
-    dialogTheme: DialogThemeData(backgroundColor: Brand.surface, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
-    bottomSheetTheme: const BottomSheetThemeData(backgroundColor: Brand.surface, surfaceTintColor: Colors.transparent),
+    dialogTheme: DialogThemeData(backgroundColor: Colors.white.withValues(alpha: 0.88), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
+    bottomSheetTheme: BottomSheetThemeData(backgroundColor: Colors.white.withValues(alpha: 0.9), surfaceTintColor: Colors.transparent),
     snackBarTheme: SnackBarThemeData(backgroundColor: Brand.navy900, contentTextStyle: const TextStyle(color: Colors.white), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.8),
-      border: border(Brand.line),
-      enabledBorder: border(Brand.line),
+      fillColor: Colors.white.withValues(alpha: 0.42),
+      border: border(Colors.white.withValues(alpha: 0.85)),
+      enabledBorder: border(Colors.white.withValues(alpha: 0.85)),
       focusedBorder: border(Brand.gold500, 1.6),
       errorBorder: border(Brand.stopped),
       focusedErrorBorder: border(Brand.stopped, 1.6),
       labelStyle: const TextStyle(color: Brand.inkSoft),
       hintStyle: const TextStyle(color: Brand.inkSoft),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       prefixIconColor: Brand.inkSoft,
       suffixIconColor: Brand.inkSoft,
     ),
@@ -79,25 +84,48 @@ ThemeData buildTheme() {
       trackColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? Brand.gold500 : Brand.track),
       trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
     ),
+    // glass buttons: blurred translucent fill + top sheen, clipped to [radius] (keep it equal to the button's shape),
+    // bright hairline edge, soft glow from the button elevation
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: Brand.gold500,
+        backgroundColor: Colors.transparent,
+        disabledBackgroundColor: Colors.transparent,
         foregroundColor: Brand.navy900,
+        elevation: 5,
+        shadowColor: Brand.gold500.withValues(alpha: 0.35),
         minimumSize: const Size.fromHeight(52),
         textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundBuilder: glassButton(16, active: true),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: Brand.ink,
         minimumSize: const Size.fromHeight(52),
-        side: const BorderSide(color: Brand.line, width: 1.4),
-        backgroundColor: Colors.white.withValues(alpha: 0.6),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.9), width: 1.4),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundBuilder: glassButton(16),
       ),
     ),
-    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: Brand.gold300)),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: Brand.gold300,
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.85)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        backgroundBuilder: glassButton(14),
+      ),
+    ),
+    iconButtonTheme: IconButtonThemeData(
+      style: ButtonStyle(
+        backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
+        foregroundColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.disabled) ? Brand.inkSoft.withValues(alpha: 0.5) : Brand.ink),
+        side: WidgetStatePropertyAll(BorderSide(color: Colors.white.withValues(alpha: 0.85))),
+        shape: const WidgetStatePropertyAll(CircleBorder()),
+        backgroundBuilder: glassButton(999),
+      ),
+    ),
   );
 }
 
@@ -114,8 +142,11 @@ class GlassBackground extends StatelessWidget {
           decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Brand.cream, Brand.creamDeep])),
         ),
       ),
-      Positioned(top: -90, right: -70, child: _orb(Brand.gold500.withValues(alpha: 0.28), 280)),
-      Positioned(bottom: 100, left: -120, child: _orb(Brand.navy500.withValues(alpha: 0.12), 320)),
+      // colourful blobs behind everything: glass only reads as glass when there is something to blur
+      Positioned(top: -90, right: -70, child: _orb(Brand.gold500.withValues(alpha: 0.55), 320)),
+      Positioned(top: 220, left: -130, child: _orb(const Color(0xFF4F8BFF).withValues(alpha: 0.30), 300)),
+      Positioned(bottom: 120, right: -110, child: _orb(const Color(0xFFFF8A5B).withValues(alpha: 0.28), 300)),
+      Positioned(bottom: -80, left: -60, child: _orb(Brand.navy500.withValues(alpha: 0.28), 320)),
       Positioned.fill(child: child),
     ]);
   }
@@ -129,26 +160,37 @@ class GlassBackground extends StatelessWidget {
 
 /// Frosted white panel: blur + translucent fill + hairline border + soft shadow.
 class GlassCard extends StatelessWidget {
-  const GlassCard({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.onTap, this.radius = 20, this.tint});
+  const GlassCard({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.onTap, this.radius = 20, this.tint, this.alpha = 0.4, this.blur = 20});
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
-  final double radius;
+  final double radius, alpha, blur;
   final Color? tint;
 
   @override
   Widget build(BuildContext context) {
     final shape = BorderRadius.circular(radius);
+    // frosted glass: blurred backdrop, a diagonal sheen (brighter top-left), a bright hairline edge and a soft warm glow
+    final top = (alpha + 0.2).clamp(0.0, 1.0), bottom = (alpha - 0.08).clamp(0.05, 1.0);
     return DecoratedBox(
-      decoration: BoxDecoration(borderRadius: shape, boxShadow: [BoxShadow(color: Brand.navy900.withValues(alpha: 0.07), blurRadius: 22, offset: const Offset(0, 8))]),
+      decoration: BoxDecoration(borderRadius: shape, boxShadow: [
+        BoxShadow(color: Brand.navy900.withValues(alpha: 0.07), blurRadius: 24, offset: const Offset(0, 8)),
+        BoxShadow(color: Brand.gold500.withValues(alpha: 0.10), blurRadius: 18, offset: const Offset(0, 4)),
+      ]),
       child: ClipRRect(
         borderRadius: shape,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Material(
-            color: (tint ?? Colors.white).withValues(alpha: 0.78),
-            shape: RoundedRectangleBorder(borderRadius: shape, side: BorderSide(color: Colors.white.withValues(alpha: 0.95))),
-            child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+          filter: ImageFilter.blur(sigmaX: blur * 1.3, sigmaY: blur * 1.3),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: shape,
+              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [(tint ?? Colors.white).withValues(alpha: top), (tint ?? Colors.white).withValues(alpha: bottom)]),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.85)),
+            ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(onTap: onTap, borderRadius: shape, child: Padding(padding: padding, child: child)),
+            ),
           ),
         ),
       ),
@@ -196,3 +238,46 @@ class LogoBadge extends StatelessWidget {
 }
 
 String fmt(num n) => n.round().toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
+/// Glass fill for small tinted things (status pills, icon tiles, selected rows): tint gradient + bright hairline.
+/// [strong] is for selected / emphasised states.
+BoxDecoration glassTint(Color c, [double radius = 20, bool strong = false]) => strong
+    ? navPill(radius)
+    : BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [c.withValues(alpha: 0.30), c.withValues(alpha: 0.12)]),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.8)),
+      );
+
+/// The selected-state look from the bottom navigation: a bright cream glass pill with a soft gold glow.
+/// Used for the active tab, selected segments / chips / days and primary buttons.
+BoxDecoration navPill(double radius) => BoxDecoration(
+      borderRadius: BorderRadius.circular(radius),
+      gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white.withValues(alpha: 0.85), Brand.goldSoft.withValues(alpha: 0.75)]),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.9)),
+      boxShadow: [BoxShadow(color: Brand.gold500.withValues(alpha: 0.25), blurRadius: 14, offset: const Offset(0, 4))],
+    );
+
+/// Background for glass buttons (ButtonStyle.backgroundBuilder). Not clipped by the button itself, so it clips to [radius]:
+/// 16 for normal buttons, 999 for pills / circles. [active] = the cream nav-pill look (primary buttons), else frosted white.
+Widget Function(BuildContext, Set<WidgetState>, Widget?) glassButton(double radius, {bool active = false}) => (context, states, child) {
+      final off = states.contains(WidgetState.disabled);
+      final colors = active ? [Colors.white.withValues(alpha: 0.85), Brand.goldSoft.withValues(alpha: 0.75)] : [Colors.white.withValues(alpha: 0.62), Colors.white.withValues(alpha: 0.22)];
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Opacity(
+            opacity: off ? 0.5 : 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors)),
+              child: DecoratedBox(
+                // glossy highlight across the top half
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.center, colors: [Colors.white.withValues(alpha: 0.35), Colors.white.withValues(alpha: 0)])),
+                child: child,
+              ),
+            ),
+          ),
+        ),
+      );
+    };

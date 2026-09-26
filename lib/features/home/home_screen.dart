@@ -139,7 +139,7 @@ class _Production extends StatelessWidget {
           Expanded(child: Muted(label, size: 13)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(color: (good ? Brand.running : Brand.idle).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+            decoration: glassTint((good ? Brand.running : Brand.idle), 20),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Icon(good ? LucideIcons.trendingUp : LucideIcons.trendingDown, size: 14, color: good ? Brand.running : Brand.idle),
               const SizedBox(width: 4),
@@ -170,7 +170,7 @@ class _Kpis extends StatelessWidget {
     Widget tile(IconData icon, String label, Widget value, Color color) => GlassCard(
           padding: const EdgeInsets.all(14),
           child: Row(children: [
-            Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12)), child: Icon(icon, size: 20, color: color)),
+            Container(padding: const EdgeInsets.all(10), decoration: glassTint(color, 12), child: Icon(icon, size: 20, color: color)),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [value, Muted(label, size: 11)])),
           ]),
@@ -209,7 +209,7 @@ class _TopMachines extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 7),
               child: Row(children: [
-                SizedBox(width: 56, height: 40, child: MachineArt(m.typeKey, height: 40, radius: 10)),
+                SizedBox(width: 56, height: 40, child: MachineArt(m.typeKey, photo: m.photo, height: 40, radius: 10)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

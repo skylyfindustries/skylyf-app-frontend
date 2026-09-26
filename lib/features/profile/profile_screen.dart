@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/api.dart';
 import '../../core/i18n.dart';
 import '../../core/providers.dart';
 import '../../core/role.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import 'edit_profile_form.dart';
 import '../staff/staff_screens.dart' show RoleBadge;
 
 class ProfileScreen extends ConsumerWidget {
@@ -28,12 +30,11 @@ class ProfileScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(18),
           child: Column(children: [
             Row(children: [
-              Container(
-                width: 62,
-                height: 62,
-                alignment: Alignment.center,
-                decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFE8B85A), Brand.gold500])),
-                child: Text(me.name.isEmpty ? '?' : me.name[0].toUpperCase(), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Brand.navy900)),
+              CircleAvatar(
+                radius: 31,
+                backgroundColor: Brand.gold500,
+                backgroundImage: me.photo == null ? null : NetworkImage(photoUrl(me.photo!)),
+                child: me.photo != null ? null : Text(me.name.isEmpty ? '?' : me.name[0].toUpperCase(), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Brand.navy900)),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -44,6 +45,7 @@ class ProfileScreen extends ConsumerWidget {
                   RoleBadge(role),
                 ]),
               ),
+              IconButton(tooltip: 'Edit profile', icon: const Icon(LucideIcons.pencil, size: 20), onPressed: () => showEditProfile(context)),
             ]),
             const SizedBox(height: 16),
             const Divider(height: 1, color: Brand.line),
@@ -65,6 +67,8 @@ class ProfileScreen extends ConsumerWidget {
             if (!role.isStaff) ...[
               const Divider(height: 1, color: Brand.line, indent: 66),
               _MenuTile(LucideIcons.wrench, 'My technicians', 'Add or remove your technicians', () => context.push('/technicians')),
+              const Divider(height: 1, color: Brand.line, indent: 66),
+              _MenuTile(LucideIcons.chartColumn, t('Reports'), 'Production, downtime and performance', () => context.push('/reports')),
               const Divider(height: 1, color: Brand.line, indent: 66),
               _MenuTile(LucideIcons.clipboardList, 'Service requests', 'Tasks given to your technicians', () => context.push('/tasks')),
               const Divider(height: 1, color: Brand.line, indent: 66),

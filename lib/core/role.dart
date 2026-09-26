@@ -32,14 +32,13 @@ enum Role {
         Role.customer => const [
             NavTab('/', LucideIcons.house, 'Home'),
             NavTab('/machines', LucideIcons.factory, 'Machines'),
-            NavTab('/reports', LucideIcons.chartColumn, 'Reports'),
+            NavTab('/assignments', LucideIcons.calendarCheck, 'Assignments'),
             NavTab('/parts', LucideIcons.shoppingCart, 'Parts'),
             NavTab('/profile', LucideIcons.user, 'Profile'),
           ],
         Role.technician => const [
             NavTab('/', LucideIcons.layoutDashboard, 'Dashboard'),
-            NavTab('/tickets', LucideIcons.clipboardList, 'Tickets'),
-            NavTab('/machines', LucideIcons.factory, 'Machines'),
+            NavTab('/my-tasks', LucideIcons.clipboardList, 'Tasks'),
             NavTab('/profile', LucideIcons.user, 'Profile'),
           ],
         Role.admin => const [

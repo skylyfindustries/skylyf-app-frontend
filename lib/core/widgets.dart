@@ -95,7 +95,7 @@ class Segments<T> extends StatelessWidget {
                   duration: const Duration(milliseconds: 180),
                   height: 44,
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(color: v == value ? Brand.gold500 : Colors.transparent, borderRadius: BorderRadius.circular(12)),
+                  decoration: v == value ? navPill(12) : BoxDecoration(borderRadius: BorderRadius.circular(12)),
                   child: Text(label, textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: v == value ? Brand.navy900 : Brand.ink)),
                 ),
               ),
@@ -111,7 +111,7 @@ class StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: statusColor(status).withValues(alpha: 0.18), borderRadius: BorderRadius.circular(20), border: Border.all(color: statusColor(status).withValues(alpha: 0.6))),
+        decoration: glassTint(statusColor(status), 20),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           StatusDot(status, size: 10, pulse: false),
           const SizedBox(width: 8),
@@ -125,11 +125,11 @@ class Muted extends StatelessWidget {
   final String text;
   final double size;
   @override
-  Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: size, color: Brand.inkSoft));
+  Widget build(BuildContext context) => Text(text, style: TextStyle(fontSize: size, color: const Color.fromARGB(255, 0, 0, 0), fontWeight: FontWeight.w900));
 }
 
 /// Bottom padding so content clears the floating nav bar.
-const navClearance = EdgeInsets.fromLTRB(16, 8, 16, 110);
+const navClearance = EdgeInsets.fromLTRB(16, 8, 16, 112);
 
 String timeAgo(DateTime d) {
   final m = DateTime.now().difference(d).inMinutes;
@@ -243,5 +243,42 @@ class InfoRow extends StatelessWidget {
           Expanded(child: Muted(label, size: 13)),
           Flexible(child: Text(value, textAlign: TextAlign.right, style: TextStyle(fontWeight: FontWeight.w700, color: valueColor))),
         ]),
+      );
+}
+
+/// Field caption shown above an input (instead of a floating label / placeholder).
+Widget above(Object label, Widget field) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(padding: const EdgeInsets.only(left: 4, bottom: 6), child: Text('$label', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, color: Brand.ink))),
+        field,
+      ],
+    );
+
+/// Filter chip in the bottom-navigation style: glass when off, cream glowing pill when selected.
+class PillChip extends StatelessWidget {
+  const PillChip(this.label, this.selected, this.onTap, {super.key, this.dot});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? dot;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: selected ? navPill(22) : glassTint(Colors.white, 22),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (dot != null) ...[Container(width: 9, height: 9, decoration: BoxDecoration(color: dot, shape: BoxShape.circle)), const SizedBox(width: 7)],
+              Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: selected ? Brand.gold300 : Brand.ink)),
+            ]),
+          ),
+        ),
       );
 }

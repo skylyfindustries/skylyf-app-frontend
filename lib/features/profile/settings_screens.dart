@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/api.dart';
 import '../../core/i18n.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import 'sign_in_methods.dart';
 
 // =====================================================================
 // Settings
@@ -101,139 +103,129 @@ class _IconBox extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(12)), child: Icon(icon, size: 20, color: color));
+  Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(10), decoration: glassTint(color, 12), child: Icon(icon, size: 20, color: color));
 }
 
 // =====================================================================
 // Security
 // =====================================================================
-class DeviceSession {
-  const DeviceSession(this.id, this.name, this.place, this.when, this.icon, {this.current = false});
-  final String id, name, place, when;
-  final IconData icon;
-  final bool current;
-}
+typedef DeviceSession = ({String id, String device, String ip, String place, DateTime lastSeenAt, bool current});
+typedef LoginEntry = ({bool ok, String method, String reason, String device, String ip, String place, DateTime at});
 
-class SecurityState {
-  const SecurityState({this.twoStep = false, this.appLock = false, this.biometric = false, this.sessions = _defaultSessions});
-  final bool twoStep, appLock, biometric;
-  final List<DeviceSession> sessions;
+final sessionsProvider = FutureProvider.autoDispose<List<DeviceSession>>((ref) async {
+  final rows = await ref.watch(apiProvider).get('/me/sessions') as List;
+  return [for (final r in rows) (id: '${r['id']}', device: '${r['device'] ?? 'Unknown device'}', ip: '${r['ip'] ?? ''}', place: '${r['place'] ?? ''}', lastSeenAt: DateTime.parse(r['lastSeenAt']).toLocal(), current: r['current'] == true)];
+});
 
-  /// 0–100, shown as the account protection meter.
-  int get score => 40 + (twoStep ? 30 : 0) + (appLock ? 20 : 0) + (biometric ? 10 : 0);
+final loginsProvider = FutureProvider.autoDispose<List<LoginEntry>>((ref) async {
+  final rows = await ref.watch(apiProvider).get('/me/logins') as List;
+  return [for (final r in rows) (ok: r['ok'] == true, method: '${r['method'] ?? ''}', reason: '${r['reason'] ?? ''}', device: '${r['device'] ?? 'Unknown device'}', ip: '${r['ip'] ?? ''}', place: '${r['place'] ?? ''}', at: DateTime.parse(r['at']).toLocal())];
+});
 
-  SecurityState copyWith({bool? twoStep, bool? appLock, bool? biometric, List<DeviceSession>? sessions}) =>
-      SecurityState(twoStep: twoStep ?? this.twoStep, appLock: appLock ?? this.appLock, biometric: biometric ?? this.biometric, sessions: sessions ?? this.sessions);
-}
-
-const _defaultSessions = [
-  DeviceSession('s1', 'This device • Pixel (Android)', 'Noida, India', 'Active now', LucideIcons.smartphone, current: true),
-  DeviceSession('s2', 'Chrome on Windows', 'Noida, India', '2 days ago', LucideIcons.monitor),
-  DeviceSession('s3', 'Samsung Galaxy (Android)', 'Delhi, India', '9 days ago', LucideIcons.smartphone),
-];
-
-class SecurityNotifier extends Notifier<SecurityState> {
-  @override
-  SecurityState build() => const SecurityState();
-  void setTwoStep(bool v) => state = state.copyWith(twoStep: v);
-  void setAppLock(bool v) => state = state.copyWith(appLock: v, biometric: v ? state.biometric : false);
-  void setBiometric(bool v) => state = state.copyWith(biometric: v);
-  void signOut(String id) => state = state.copyWith(sessions: [for (final s in state.sessions) if (s.id != id) s]);
-  void signOutOthers() => state = state.copyWith(sessions: [for (final s in state.sessions) if (s.current) s]);
-}
-
-final securityProvider = NotifierProvider<SecurityNotifier, SecurityState>(SecurityNotifier.new);
+IconData _deviceIcon(String device) => RegExp('app|Android|iOS', caseSensitive: false).hasMatch(device) ? LucideIcons.smartphone : LucideIcons.monitor;
+/// "Noida, Uttar Pradesh, India • 203.0.113.7" (the place appears a moment after sign-in; the IP is always there)
+String _where(String place, String ip) => [place, ip.replaceFirst('::ffff:', '')].where((x) => x.isNotEmpty).join(' • ');
 
 class SecurityScreen extends ConsumerWidget {
   const SecurityScreen({super.key});
 
+  Future<void> _revoke(BuildContext context, WidgetRef ref, Future<dynamic> Function() call) async {
+    try {
+      await call();
+      ref.invalidate(sessionsProvider);
+    } catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Something went wrong')));
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final sec = ref.watch(securityProvider);
-    final n = ref.read(securityProvider.notifier);
-    Widget sw(bool value, ValueChanged<bool>? on, IconData icon, String title, String sub) => SwitchListTile.adaptive(
-          value: value,
-          onChanged: on,
-          secondary: _IconBox(icon),
-          title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-          subtitle: Text(sub, style: const TextStyle(fontSize: 12, color: Brand.inkSoft)),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        );
+    final api = ref.read(apiProvider);
+    final methods = ref.watch(signInMethodsProvider).valueOrNull;
+    final sessions = ref.watch(sessionsProvider);
+    final logins = ref.watch(loginsProvider);
 
     return GlassPage(
       title: 'Security',
-      child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
-        _Score(sec.score).reveal(0),
-        const SectionTitle(LucideIcons.keyRound, 'Change password').reveal(1),
-        const _PasswordForm().reveal(1),
-        const SectionTitle(LucideIcons.shieldCheck, 'Sign-in protection').reveal(2),
-        GlassCard(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(children: [
-            sw(sec.twoStep, n.setTwoStep, LucideIcons.smartphoneNfc, 'Two-step verification', 'Ask for an SMS code when signing in on a new device'),
-            const Divider(height: 1, color: Brand.line),
-            sw(sec.appLock, n.setAppLock, LucideIcons.lockKeyhole, 'App lock', 'Require a PIN when the app is opened'),
-            const Divider(height: 1, color: Brand.line),
-            sw(sec.biometric, sec.appLock ? n.setBiometric : null, LucideIcons.fingerprint, 'Fingerprint / face unlock', sec.appLock ? 'Unlock faster with your biometrics' : 'Turn on App lock first'),
-          ]),
-        ).reveal(2),
-        SectionTitle(LucideIcons.monitorSmartphone, 'Where you are signed in').reveal(3),
-        for (final s in sec.sessions)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: GlassCard(
-              child: Row(children: [
-                _IconBox(s.icon, color: s.current ? Brand.running : Brand.navy500),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(s.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-                    Muted('${s.place} • ${s.when}', size: 12),
-                  ]),
+      child: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(signInMethodsProvider);
+          ref.invalidate(sessionsProvider);
+          ref.invalidate(loginsProvider);
+        },
+        child: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
+          _Score(methods).reveal(0),
+          const SectionTitle(LucideIcons.keyRound, 'Change password').reveal(1),
+          const _PasswordForm().reveal(1),
+          const SignInMethods().reveal(2),
+          SectionTitle(LucideIcons.monitorSmartphone, 'Where you are signed in').reveal(3),
+          asyncView<List<DeviceSession>>(
+            sessions,
+            (list) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              for (final s in list)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: GlassCard(
+                    child: Row(children: [
+                      _IconBox(_deviceIcon(s.device), color: s.current ? Brand.running : Brand.navy500),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(s.current ? 'This device • ${s.device}' : s.device, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                          Muted(s.current ? 'Active now' : 'Active ${timeAgo(s.lastSeenAt)}', size: 12),
+                          if (_where(s.place, s.ip).isNotEmpty) Muted(_where(s.place, s.ip), size: 12),
+                        ]),
+                      ),
+                      if (!s.current) TextButton(onPressed: () => _revoke(context, ref, () => api.delete('/me/sessions/${s.id}')), child: const Text('Sign out', style: TextStyle(fontWeight: FontWeight.w700))),
+                    ]),
+                  ),
                 ),
-                if (!s.current) TextButton(onPressed: () => n.signOut(s.id), child: const Text('Sign out', style: TextStyle(fontWeight: FontWeight.w700))),
-              ]),
-            ),
+              if (list.length > 1)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: const Text('Sign out other devices?'),
+                        content: const Text('You will stay signed in on this device only.'),
+                        actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sign out'))],
+                      ),
+                    );
+                    if (ok == true && context.mounted) _revoke(context, ref, () => api.post('/me/sessions/revoke-others', {}));
+                  },
+                  icon: const Icon(LucideIcons.logOut, size: 18),
+                  label: const Text('Sign out all other devices'),
+                ),
+            ]),
+            onRetry: () => ref.invalidate(sessionsProvider),
           ).reveal(3),
-        if (sec.sessions.length > 1)
-          OutlinedButton.icon(
-            onPressed: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (c) => AlertDialog(
-                  title: const Text('Sign out other devices?'),
-                  content: const Text('You will stay signed in on this device only.'),
-                  actions: [TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')), TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sign out'))],
-                ),
-              );
-              if (ok == true) n.signOutOthers();
-            },
-            icon: const Icon(LucideIcons.logOut, size: 18),
-            label: const Text('Sign out all other devices'),
-          ),
-        const SectionTitle(LucideIcons.history, 'Recent sign-ins').reveal(4),
-        const GlassCard(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(children: [
-            _LoginRow('Today, 10:02', 'Pixel • Noida', true),
-            Divider(height: 1, color: Brand.line),
-            _LoginRow('Yesterday, 18:40', 'Chrome • Noida', true),
-            Divider(height: 1, color: Brand.line),
-            _LoginRow('22 Sep, 02:13', 'Unknown device • Mumbai', false),
-            Divider(height: 1, color: Brand.line),
-            _LoginRow('20 Sep, 09:31', 'Samsung • Delhi', true),
-          ]),
-        ).reveal(4),
-        const SizedBox(height: 12),
-        const Muted('You only ever see machines that belong to your company. Sign-in attempts are logged and suspicious ones are blocked.', size: 12),
-      ]),
+          const SectionTitle(LucideIcons.history, 'Recent sign-ins').reveal(4),
+          asyncView<List<LoginEntry>>(
+            logins,
+            (list) => GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: list.isEmpty
+                  ? const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Muted('No sign-ins recorded yet.', size: 13))
+                  : Column(children: [
+                      for (var i = 0; i < list.length; i++) ...[
+                        if (i > 0) const Divider(height: 1, color: Brand.line),
+                        _LoginRow(timeAgo(list[i].at), '${list[i].device}${_where(list[i].place, list[i].ip).isEmpty ? '' : '\n${_where(list[i].place, list[i].ip)}'}', list[i].ok, list[i].ok ? list[i].method : list[i].reason),
+                      ],
+                    ]),
+            ),
+            onRetry: () => ref.invalidate(loginsProvider),
+          ).reveal(4),
+          const SizedBox(height: 12),
+          const Muted('You only ever see machines that belong to your company. Every sign-in attempt on your account is logged here.', size: 12),
+        ]),
+      ),
     );
   }
 }
 
 class _LoginRow extends StatelessWidget {
-  const _LoginRow(this.when, this.where, this.ok);
-  final String when, where;
+  const _LoginRow(this.when, this.where, this.ok, this.note);
+  final String when, where, note;
   final bool ok;
 
   @override
@@ -243,18 +235,22 @@ class _LoginRow extends StatelessWidget {
           Icon(ok ? LucideIcons.circleCheck : LucideIcons.circleX, size: 18, color: ok ? Brand.running : Brand.stopped),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(where, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)), Muted(when, size: 11)])),
-          Text(ok ? 'Success' : 'Blocked', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: ok ? Brand.running : Brand.stopped)),
+          Text(ok ? (note.isEmpty ? 'Success' : note) : (note.isEmpty ? 'Failed' : note), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: ok ? Brand.running : Brand.stopped)),
         ]),
       );
 }
 
 class _Score extends StatelessWidget {
-  const _Score(this.score);
-  final int score;
+  const _Score(this.methods);
+  final SignInMethodsInfo? methods;
 
   @override
   Widget build(BuildContext context) {
-    final (label, color) = score >= 90 ? ('Excellent', Brand.running) : score >= 70 ? ('Good', Brand.gold300) : ('Basic', Brand.idle);
+    // password = 40, authenticator app = +30, at least one passkey = +30
+    final totp = methods?.totp ?? false, passkey = methods?.passkeys.isNotEmpty ?? false;
+    final score = 40 + (totp ? 30 : 0) + (passkey ? 30 : 0);
+    final (label, color) = score >= 100 ? ('Excellent', Brand.running) : score >= 70 ? ('Good', Brand.gold300) : ('Basic', Brand.idle);
+    final todo = [if (!totp) 'an authenticator app', if (!passkey) 'a passkey'];
     return GlassCard(
       padding: const EdgeInsets.all(18),
       child: Row(children: [
@@ -265,7 +261,7 @@ class _Score extends StatelessWidget {
             const Muted('Account protection', size: 13),
             Text(label, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: color)),
             const SizedBox(height: 4),
-            Muted(score >= 90 ? 'All protections are on.' : 'Turn on two-step verification and app lock to be fully protected.', size: 12),
+            Muted(methods == null ? 'Checking…' : todo.isEmpty ? 'All protections are on.' : 'Add ${todo.join(' and ')} to be fully protected.', size: 12),
           ]),
         ),
       ]),
@@ -327,20 +323,20 @@ class _PasswordFormState extends ConsumerState<_PasswordForm> {
       child: Form(
         key: _form,
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          TextFormField(
+          above('Current password', TextFormField(
             controller: _cur,
             obscureText: _hide,
-            decoration: InputDecoration(labelText: 'Current password', prefixIcon: const Icon(LucideIcons.lock), suffixIcon: IconButton(icon: Icon(_hide ? LucideIcons.eyeOff : LucideIcons.eye, size: 20), onPressed: () => setState(() => _hide = !_hide))),
+            decoration: InputDecoration(prefixIcon: const Icon(LucideIcons.lock), suffixIcon: IconButton(icon: Icon(_hide ? LucideIcons.eyeOff : LucideIcons.eye, size: 20), onPressed: () => setState(() => _hide = !_hide))),
             validator: (v) => (v == null || v.isEmpty) ? 'Enter your current password' : null,
-          ),
+          )),
           const SizedBox(height: 12),
-          TextFormField(
+          above('New password', TextFormField(
             controller: _new,
             obscureText: _hide,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(labelText: 'New password', prefixIcon: Icon(LucideIcons.keyRound)),
+            decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.keyRound)),
             validator: (v) => (v == null || v.length < 8) ? 'Use at least 8 characters' : null,
-          ),
+          )),
           if (_new.text.isNotEmpty) ...[
             const SizedBox(height: 10),
             Row(children: [
@@ -350,12 +346,12 @@ class _PasswordFormState extends ConsumerState<_PasswordForm> {
             ]),
           ],
           const SizedBox(height: 12),
-          TextFormField(
+          above('Confirm new password', TextFormField(
             controller: _confirm,
             obscureText: _hide,
-            decoration: const InputDecoration(labelText: 'Confirm new password', prefixIcon: Icon(LucideIcons.shieldCheck)),
+            decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.shieldCheck)),
             validator: (v) => v != _new.text ? 'Passwords do not match' : null,
-          ),
+          )),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_error!, style: const TextStyle(color: Brand.stopped, fontWeight: FontWeight.w600))),
           const SizedBox(height: 16),
           FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Brand.navy900)) : const Text('Update password')),

@@ -11,6 +11,7 @@ import '../../core/role.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import 'manage_machine.dart';
+import 'store_grid.dart';
 
 class MachinesScreen extends ConsumerStatefulWidget {
   const MachinesScreen({super.key});
@@ -22,6 +23,9 @@ class MachinesScreen extends ConsumerStatefulWidget {
 class _MachinesScreenState extends ConsumerState<MachinesScreen> {
   String? _type; // null = ALL
   String? _company; // staff filter: null = all customers, 'unassigned', or a customer name
+  String? _status; // running | stopped | idle, null = any
+  String _query = '';
+  String _sort = 'code'; // code | status | production | efficiency
   String _tab = 'mine';
 
   @override
@@ -64,7 +68,18 @@ class _MachinesScreenState extends ConsumerState<MachinesScreen> {
           else
             SizedBox(
               height: machines.hasValue ? null : 260,
-              child: asyncView(machines, (all) => _MineTab(all, _type, (v) => setState(() => _type = v), t, staff: role.isStaff, company: _company, onCompany: (v) => setState(() => _company = v)), onRetry: () => ref.invalidate(machinesProvider)),
+              child: asyncView(
+                machines,
+                (all) => _MineTab(
+                  all, _type, (v) => setState(() => _type = v), t,
+                  staff: role.isStaff, company: _company, onCompany: (v) => setState(() => _company = v),
+                  status: _status, onStatus: (v) => setState(() => _status = v),
+                  query: _query, onQuery: (v) => setState(() => _query = v),
+                  sort: _sort, onSort: (v) => setState(() => _sort = v),
+                  onClear: () => setState(() { _type = null; _status = null; _query = ''; _company = null; }),
+                ),
+                onRetry: () => ref.invalidate(machinesProvider),
+              ),
             ),
         ]),
       ),
@@ -74,25 +89,82 @@ class _MachinesScreenState extends ConsumerState<MachinesScreen> {
 
 // ---------------- My machines ----------------
 class _MineTab extends StatelessWidget {
-  const _MineTab(this.all, this.type, this.onType, this.t, {this.staff = false, this.company, this.onCompany});
+  const _MineTab(this.all, this.type, this.onType, this.t, {this.staff = false, this.company, this.onCompany, this.status, required this.onStatus, this.query = '', required this.onQuery, this.sort = 'code', required this.onSort, required this.onClear});
   final List<Machine> all;
-  final String? type;
-  final ValueChanged<String?> onType;
+  final String? type, status;
+  final ValueChanged<String?> onType, onStatus;
   final String Function(String) t;
   final bool staff;
   final String? company;
   final ValueChanged<String?>? onCompany;
+  final String query, sort;
+  final ValueChanged<String> onQuery, onSort;
+  final VoidCallback onClear;
+
+  static const _sorts = {'code': 'Code (A–Z)', 'status': 'Stopped first', 'production': 'Most production today', 'efficiency': 'Lowest efficiency'};
+
+  int _rank(Machine m) => switch (m.status) { 'stopped' => 0, 'idle' => 1, _ => 2 };
 
   @override
   Widget build(BuildContext context) {
     final types = <String, String>{for (final m in all) m.typeKey: m.typeName.toUpperCase()};
     final companies = <String>{for (final m in all) m.company ?? 'unassigned'};
-    final shown = all.where((m) => (type == null || m.typeKey == type) && (company == null || (m.company ?? 'unassigned') == company)).toList();
+    final q = query.trim().toLowerCase();
+    bool typeOk(Machine m) => type == null || m.typeKey == type;
+    bool companyOk(Machine m) => company == null || (m.company ?? 'unassigned') == company;
+    bool textOk(Machine m) => q.isEmpty || '${m.code} ${m.name} ${m.model} ${m.typeName}'.toLowerCase().contains(q);
+    // counts on the status chips follow the other filters
+    final base = all.where((m) => typeOk(m) && companyOk(m) && textOk(m)).toList();
+    final shown = base.where((m) => status == null || m.status == status).toList()
+      ..sort((a, b) => switch (sort) {
+            'status' => _rank(a) != _rank(b) ? _rank(a).compareTo(_rank(b)) : a.code.compareTo(b.code),
+            'production' => b.todayProduction.compareTo(a.todayProduction),
+            'efficiency' => a.efficiency.compareTo(b.efficiency),
+            _ => a.code.compareTo(b.code),
+          });
     final running = shown.where((m) => m.status == 'running').length;
     final produced = shown.fold<num>(0, (s, m) => s + m.todayProduction);
+    final filtered = type != null || status != null || q.isNotEmpty || company != null;
+    int n(String s) => base.where((m) => m.status == s).length;
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: _SearchBox(query, onQuery)),
+        const SizedBox(width: 8),
+        PopupMenuButton<String>(
+          tooltip: 'Sort',
+          onSelected: onSort,
+          itemBuilder: (_) => [for (final e in _sorts.entries) CheckedPopupMenuItem(value: e.key, checked: sort == e.key, child: Text(e.value))],
+          child: Container(
+            height: 48,
+            width: 48,
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.5), shape: BoxShape.circle, border: Border.all(color: Brand.line)),
+            child: const Icon(LucideIcons.arrowUpDown, size: 20, color: Brand.navy700),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          _Chip('All (${base.length})', status == null, () => onStatus(null)),
+          _Chip('${t('Running')} (${n('running')})', status == 'running', () => onStatus('running'), dot: Brand.running),
+          _Chip('${t('Stopped')} (${n('stopped')})', status == 'stopped', () => onStatus('stopped'), dot: Brand.stopped),
+          _Chip('${t('Idle')} (${n('idle')})', status == 'idle', () => onStatus('idle'), dot: Brand.idle),
+        ]),
+      ),
+      if (types.length > 1) ...[
+        const SizedBox(height: 2),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            _Chip('All types', type == null, () => onType(null)),
+            for (final e in types.entries) _Chip(t(e.value), type == e.key, () => onType(e.key)),
+          ]),
+        ),
+      ],
       if (staff && companies.length > 1) ...[
+        const SizedBox(height: 2),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(children: [
@@ -100,72 +172,104 @@ class _MineTab extends StatelessWidget {
             for (final c in companies) _Chip(c == 'unassigned' ? 'Unassigned' : c, company == c, () => onCompany?.call(c)),
           ]),
         ),
-        const SizedBox(height: 4),
       ],
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          _Chip(t('ALL'), type == null, () => onType(null)),
-          for (final e in types.entries) _Chip(t(e.value), type == e.key, () => onType(e.key)),
-        ]),
-      ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 10),
       GlassCard(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(children: [
           const Icon(LucideIcons.factory, size: 18, color: Brand.gold300),
           const SizedBox(width: 8),
           Expanded(child: Text('${shown.length} machines • $running running', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13))),
-          Muted('${fmt(produced)} made today', size: 12),
+          if (filtered) InkWell(onTap: onClear, borderRadius: BorderRadius.circular(12), child: const Padding(padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2), child: Text('Clear', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Brand.gold300))))
+          else Muted('${fmt(produced)} made today', size: 12),
         ]),
       ).reveal(0),
       const SizedBox(height: 12),
-      if (shown.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Center(child: Muted('No machines found', size: 14))),
+      if (shown.isEmpty)
+        Padding(
+          padding: const EdgeInsets.all(32),
+          child: Center(child: Column(children: [
+            const Icon(LucideIcons.searchX, size: 32, color: Brand.gold300),
+            const SizedBox(height: 8),
+            Muted(filtered ? 'No machines match your filters' : 'No machines found', size: 14),
+            if (filtered) TextButton(onPressed: onClear, child: const Text('Clear filters')),
+          ])),
+        ),
       for (final (i, m) in shown.indexed) MachineRow(m).reveal(math.min(i, 8)),
     ]);
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip(this.label, this.selected, this.onTap);
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+/// Pill search field that keeps its text when the list rebuilds.
+class _SearchBox extends StatefulWidget {
+  const _SearchBox(this.value, this.onChanged);
+  final String value;
+  final ValueChanged<String> onChanged;
+  @override
+  State<_SearchBox> createState() => _SearchBoxState();
+}
+
+class _SearchBoxState extends State<_SearchBox> {
+  late final _c = TextEditingController(text: widget.value);
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: ChoiceChip(
-          label: Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: selected ? Brand.navy900 : Brand.ink)),
-          selected: selected,
-          onSelected: (_) => onTap(),
-          selectedColor: Brand.gold500,
-          backgroundColor: Colors.white.withValues(alpha: 0.75),
-          side: const BorderSide(color: Brand.line),
-          showCheckmark: false,
-          visualDensity: VisualDensity.comfortable,
+  void didUpdateWidget(_SearchBox old) {
+    super.didUpdateWidget(old);
+    if (widget.value != _c.text) _c.text = widget.value; // e.g. "Clear" reset it from outside
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+        controller: _c,
+        onChanged: widget.onChanged,
+        textInputAction: TextInputAction.search,
+        decoration: InputDecoration(
+          hintText: 'Search code, name or model',
+          prefixIcon: const Icon(LucideIcons.search, size: 20),
+          suffixIcon: _c.text.isEmpty ? null : IconButton(icon: const Icon(LucideIcons.x, size: 18), onPressed: () { _c.clear(); widget.onChanged(''); }),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(40), borderSide: const BorderSide(color: Brand.line)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(40), borderSide: const BorderSide(color: Brand.line)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(40), borderSide: const BorderSide(color: Brand.gold500, width: 1.6)),
         ),
       );
 }
 
-/// One machine: thumbnail, status, speed and today's progress. Staff also see the customer name.
+typedef _Chip = PillChip;
+
+/// One machine: picture (no backdrop card), status, name/model, speed, efficiency, today's progress and when it last reported. Staff also see the customer name.
 class MachineRow extends ConsumerWidget {
   const MachineRow(this.m, {super.key});
   final Machine m;
+
+  Widget _fact(IconData icon, String text, {Color color = Brand.inkSoft}) => Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 3),
+        Text(text, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: color)),
+      ]);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(trProvider);
     final staff = ref.watch(roleProvider)?.isStaff ?? false;
     final pct = m.todayTarget == 0 ? 0.0 : (m.todayProduction / m.todayTarget).clamp(0, 1).toDouble();
+    final title = [if (m.name.isNotEmpty) m.name else m.typeName, if (m.model.isNotEmpty && m.model != m.name) m.model].join(' · ');
+    final eff = m.efficiency.round();
+    final effColor = eff >= 85 ? Brand.running : eff >= 60 ? Brand.idle : Brand.stopped;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: GlassCard(
         onTap: () => context.push('/machine/${m.id}'),
-        padding: const EdgeInsets.all(12),
-        child: Row(children: [
-          SizedBox(width: 78, child: MachineArt(m.typeKey, status: m.status, height: 70, radius: 14)),
-          const SizedBox(width: 14),
+        padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(width: 84, child: MachineArt(m.typeKey, photo: m.photos.firstOrNull, status: m.status, height: 84, radius: 16, plain: true)),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
@@ -175,21 +279,28 @@ class MachineRow extends ConsumerWidget {
                 const SizedBox(width: 6),
                 Text(t(m.statusLabel), style: TextStyle(color: statusColor(m.status), fontWeight: FontWeight.w700, fontSize: 13)),
               ]),
+              if (title.isNotEmpty) Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Brand.inkSoft)),
               if (staff) Text(m.company ?? 'Unassigned', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: m.company == null ? Brand.idle : Brand.gold300, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              Row(children: [
-                Text('${fmt(m.speed)} ', style: const TextStyle(fontWeight: FontWeight.w800)),
-                Muted(m.speedUnit, size: 12),
-              ]),
               const SizedBox(height: 6),
+              Wrap(spacing: 12, runSpacing: 3, children: [
+                _fact(LucideIcons.gauge, '${fmt(m.speed)} ${m.speedUnit}'.trim()),
+                _fact(LucideIcons.zap, '$eff% efficiency', color: effColor),
+              ]),
+              const SizedBox(height: 8),
               Row(children: [
                 Expanded(child: AnimatedBar(pct, height: 5, color: m.status == 'stopped' ? Brand.stopped : Brand.gold500)),
                 const SizedBox(width: 8),
-                Muted('${fmt(m.todayProduction)} ${m.outputUnit}', size: 11),
+                Muted('${fmt(m.todayProduction)} / ${fmt(m.todayTarget)} ${m.outputUnit}', size: 11),
+              ]),
+              const SizedBox(height: 6),
+              Row(children: [
+                const Icon(LucideIcons.clock, size: 11, color: Brand.inkSoft),
+                const SizedBox(width: 4),
+                Muted(m.lastSeenAt == null ? 'No data yet' : 'Updated ${timeAgo(m.lastSeenAt!)}', size: 11),
               ]),
             ]),
           ),
-          const Icon(LucideIcons.chevronRight, size: 18, color: Brand.inkSoft),
+          const Padding(padding: EdgeInsets.only(top: 26), child: Icon(LucideIcons.chevronRight, size: 18, color: Brand.inkSoft)),
         ]),
       ),
     );
@@ -202,7 +313,6 @@ class _RegisterTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final catalog = ref.watch(catalogProvider);
     final regs = ref.watch(registrationsProvider).valueOrNull ?? const <Registration>[];
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -218,13 +328,13 @@ class _RegisterTab extends ConsumerWidget {
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('${r.nickname} • ${r.model}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                    Muted('Serial ${r.serial}', size: 11),
+                    Muted(r.qty > 1 ? '${r.qty} machines · Serial ${r.serials.isEmpty ? r.serial : r.serials.join(', ')}' : 'Serial ${r.serial}', size: 11),
                     Muted('Submitted ${timeAgo(r.createdAt)}', size: 11),
                   ]),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(color: Brand.idle.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+                  decoration: glassTint(Brand.idle, 20),
                   child: const Text('PENDING', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Brand.idle, letterSpacing: 0.6)),
                 ),
               ]),
@@ -234,131 +344,7 @@ class _RegisterTab extends ConsumerWidget {
       const SectionTitle(LucideIcons.circlePlus, 'Available to register'),
       const Muted('Pick a Skylyf machine you own, enter its serial number, and we will connect it to your account.', size: 13),
       const SizedBox(height: 12),
-      SizedBox(
-        height: catalog.hasValue ? null : 220,
-        child: asyncView(
-          catalog,
-          (list) => Column(children: [for (final (i, c) in list.indexed) _CatalogCard(c).reveal(i)]),
-          onRetry: () => ref.invalidate(catalogProvider),
-        ),
-      ),
+      const StoreGrid(),
     ]);
   }
-}
-
-class _CatalogCard extends ConsumerWidget {
-  const _CatalogCard(this.c);
-  final CatalogItem c;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: GlassCard(
-          padding: EdgeInsets.zero,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            MachineArt(c.typeKey, height: 130, radius: 0),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(child: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: Brand.goldSoft, borderRadius: BorderRadius.circular(20)),
-                    child: Text(c.model, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Brand.gold300)),
-                  ),
-                ]),
-                const SizedBox(height: 4),
-                Muted(c.tagline, size: 13),
-                const SizedBox(height: 10),
-                Row(children: [const Icon(LucideIcons.gauge, size: 16, color: Brand.gold300), const SizedBox(width: 6), Text(c.speed, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13))]),
-                const SizedBox(height: 10),
-                Wrap(spacing: 14, runSpacing: 6, children: [
-                  for (final s in c.specs) Row(mainAxisSize: MainAxisSize.min, children: [const Icon(LucideIcons.check, size: 14, color: Brand.running), const SizedBox(width: 4), Text(s, style: const TextStyle(fontSize: 12))]),
-                ]),
-                const SizedBox(height: 14),
-                FilledButton.icon(onPressed: () => _register(context, ref), icon: const Icon(LucideIcons.plus, size: 18), label: const Text('Register this machine')),
-              ]),
-            ),
-          ]),
-        ),
-      );
-
-  Future<void> _register(BuildContext context, WidgetRef ref) async {
-    final done = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-      builder: (_) => _RegisterSheet(c),
-    );
-    if (done == true && context.mounted) {
-      ref.invalidate(registrationsProvider);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Registration submitted. Skylyf will verify the serial number within 24 hours.')));
-    }
-  }
-}
-
-class _RegisterSheet extends ConsumerStatefulWidget {
-  const _RegisterSheet(this.c);
-  final CatalogItem c;
-
-  @override
-  ConsumerState<_RegisterSheet> createState() => _RegisterSheetState();
-}
-
-class _RegisterSheetState extends ConsumerState<_RegisterSheet> {
-  final _form = GlobalKey<FormState>();
-  final _serial = TextEditingController();
-  final _nick = TextEditingController();
-  bool _busy = false;
-  String? _error;
-
-  @override
-  void dispose() {
-    _serial.dispose();
-    _nick.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!_form.currentState!.validate()) return;
-    setState(() { _busy = true; _error = null; });
-    try {
-      await ref.read(apiProvider).post('/registrations', {'catalogId': widget.c.id, 'serial': _serial.text.trim().toUpperCase(), 'nickname': _nick.text.trim()});
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) setState(() { _busy = false; _error = '$e'; });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(20, 20, 20, 24 + MediaQuery.of(context).viewInsets.bottom),
-        child: Form(
-          key: _form,
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Register ${widget.c.model}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            const Muted('The serial number is on the nameplate at the back of the machine.', size: 13),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _serial,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(labelText: 'Serial number', prefixIcon: Icon(LucideIcons.hash)),
-              validator: (v) => (v == null || v.trim().length < 8) ? 'Enter the full serial number' : null,
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _nick,
-              decoration: const InputDecoration(labelText: 'Machine name (e.g. PC-12)', prefixIcon: Icon(LucideIcons.tag)),
-              validator: (v) => (v == null || v.trim().isEmpty) ? 'Give it a short name' : null,
-            ),
-            const SizedBox(height: 12),
-            const GlassCard(padding: EdgeInsets.all(14), child: Row(children: [Icon(LucideIcons.mapPin, size: 18, color: Brand.gold300), SizedBox(width: 10), Text('Plant: Noida Plant', style: TextStyle(fontWeight: FontWeight.w600))])),
-            if (_error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_error!, style: const TextStyle(color: Brand.stopped, fontWeight: FontWeight.w600))),
-            const SizedBox(height: 18),
-            FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Brand.navy900)) : const Text('Submit registration')),
-          ]),
-        ),
-      );
 }

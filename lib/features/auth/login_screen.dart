@@ -1,13 +1,13 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/api.dart';
 import '../../core/i18n.dart';
 import '../../core/providers.dart';
-import '../../core/role.dart';
 import '../../core/theme.dart';
+import '../../core/validators.dart';
 import '../../core/widgets.dart';
+import 'auth_widgets.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -17,27 +17,68 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  // Demo credentials are prefilled in debug builds only.
-  final _id = TextEditingController(text: (kDebugMode || demoMode) ? 'customer@abc.com' : '');
-  final _pw = TextEditingController(text: (kDebugMode || demoMode) ? 'Skylyf@123' : '');
-  bool _busy = false, _hide = true;
-  Role _demoRole = Role.customer;
-  String? _error;
+  Method _method = Method.email;
+  bool _keep = false; // "keep me signed in": off = the server signs you out 12 hours after sign-in
+
+  /// Every sign-in method goes through here so the choice is sent with it.
+  Future<void> _go(Future<void> Function(Api api) method) => ref.read(authProvider.notifier).signIn((api) {
+        api.remember = _keep;
+        return method(api);
+      });
+
+  @override
+  Widget build(BuildContext context) {
+    final keep = KeepSignedIn(value: _keep, onChanged: (v) => setState(() => _keep = v));
+    return AuthShell(
+      brand: false,
+      titleAbove: true,
+      image: 'assets/login-vector.jpg',
+      title: 'Login',
+      subtitle: 'Sign in to monitor your plant.',
+      footer: Column(children: [
+        MethodIcons(value: _method, onChanged: (m) => setState(() => _method = m)),
+        const SizedBox(height: 8),
+        TextButton(onPressed: () => context.push('/register'), child: const Text('New factory owner? Create an account', style: TextStyle(fontWeight: FontWeight.w700))),
+        const Muted('EVERYTHING YOUR PRODUCTION NEEDS'),
+      ]),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        switch (_method) {
+          Method.email => _EmailLogin(extra: keep, onSubmit: (id, pw) => _go((api) => api.login(id, pw))),
+          Method.phone => PhoneOtpPanel(
+              verifyLabel: 'Verify & sign in',
+              extra: keep,
+              send: (c, phone) => ref.read(apiProvider).otpRequest(c.dial, phone, 'login'),
+              onVerify: (c, phone, code) => _go((api) => api.otpLogin(c.dial, phone, code)),
+            ),
+          Method.passkey => PasskeyPanel(label: 'Sign in with passkey', extra: keep, onGo: () => _go((api) => api.passkeyLogin())),
+          Method.authenticator => AuthenticatorPanel(verifyLabel: 'Verify & sign in', extra: keep, onVerify: (id, code) => _go((api) => api.totpLogin(id, code))),
+        },
+      ]),
+    );
+  }
+}
+
+class _EmailLogin extends ConsumerStatefulWidget {
+  const _EmailLogin({required this.onSubmit, this.extra});
+  final Future<void> Function(String email, String password) onSubmit;
+  final Widget? extra;
+  @override
+  ConsumerState<_EmailLogin> createState() => _EmailLoginState();
+}
+
+class _EmailLoginState extends ConsumerState<_EmailLogin> with BusyError {
+  final _form = GlobalKey<FormState>();
+  final _email = TextEditingController();
+  final _pw = TextEditingController();
 
   Future<void> _submit() async {
-    setState(() { _busy = true; _error = null; });
-    try {
-      await ref.read(authProvider.notifier).login(_id.text.trim(), _pw.text);
-    } catch (e) {
-      if (mounted) setState(() { _error = '$e'; _busy = false; });
-    }
+    if (!_form.currentState!.validate()) return;
+    await run(() => widget.onSubmit(_email.text.trim(), _pw.text));
   }
-
-  static const _demoLogins = {Role.customer: 'customer@abc.com', Role.technician: 'tech@skylyf.com', Role.admin: 'owner@skylyf.com'};
 
   @override
   void dispose() {
-    _id.dispose();
+    _email.dispose();
     _pw.dispose();
     super.dispose();
   }
@@ -45,72 +86,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final t = ref.watch(trProvider);
-    return GlassBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const LogoBadge(width: 210),
-                const SizedBox(height: 28),
-                GlassCard(
-                  padding: const EdgeInsets.all(22),
-                  radius: 28,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Text('Machine Monitoring', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 4),
-                    const Muted('Sign in to see your plant', size: 13),
-                    const SizedBox(height: 18),
-                    if (demoMode) ...[
-                      const Muted('Sign in as', size: 12),
-                      const SizedBox(height: 6),
-                      Segments<Role>(
-                        options: [for (final r in Role.values) (r, r.label)],
-                        value: _demoRole,
-                        onChanged: (r) => setState(() {
-                          _demoRole = r;
-                          _id.text = _demoLogins[r]!;
-                        }),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                    TextField(
-                      controller: _id,
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const [AutofillHints.username],
-                      decoration: const InputDecoration(labelText: 'Email or phone', prefixIcon: Icon(LucideIcons.user)),
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _pw,
-                      obscureText: _hide,
-                      onSubmitted: (_) => _submit(),
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        prefixIcon: const Icon(LucideIcons.lock),
-                        suffixIcon: IconButton(icon: Icon(_hide ? LucideIcons.eyeOff : LucideIcons.eye), onPressed: () => setState(() => _hide = !_hide)),
-                      ),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 12),
-                      Text(_error!, style: const TextStyle(color: Brand.stopped, fontWeight: FontWeight.w600)),
-                    ],
-                    const SizedBox(height: 22),
-                    FilledButton(
-                      onPressed: _busy ? null : _submit,
-                      child: _busy ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Brand.navy900)) : Text(t('Login')),
-                    ),
-                  ]),
-                ),
-                const SizedBox(height: 20),
-                const Muted('EVERYTHING YOUR PRODUCTION NEEDS'),
-              ]),
-            ),
-          ),
-        ),
-      ),
+    return Form(
+      key: _form,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        EmailField(controller: _email),
+        const SizedBox(height: 14),
+        PasswordField(controller: _pw, validator: V.loginPassword, onSubmitted: _submit),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Flexible(child: widget.extra ?? const SizedBox.shrink()),
+          TextButton(onPressed: () => context.push('/forgot'), child: const Text('Forgot password?', style: TextStyle(fontWeight: FontWeight.w700, color: Brand.gold300))),
+        ]),
+        ErrorText(error),
+        const SizedBox(height: 8),
+        BusyButton(label: t('Login'), busy: busy, onPressed: _submit),
+      ]),
     );
   }
 }

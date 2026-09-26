@@ -1,5 +1,6 @@
 package com.skylyf.skylyf_machine
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// passkeys (Credential Manager) needs a FragmentActivity
+class MainActivity : FlutterFragmentActivity()

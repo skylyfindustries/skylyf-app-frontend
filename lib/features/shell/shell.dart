@@ -14,7 +14,6 @@ class Shell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final t = ref.watch(trProvider);
     ref.listen(meProvider, (_, me) => me.whenData((m) => ref.read(langProvider.notifier).setFromServer(m.language)));
     ref.watch(meProvider); // keep alive so the listener fires once loaded
     final tabs = (ref.watch(roleProvider) ?? Role.customer).tabs;
@@ -24,38 +23,50 @@ class Shell extends ConsumerWidget {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         extendBody: true,
-        body: SafeArea(bottom: false, child: child),
+        body: SafeArea(bottom: false, child: Padding(padding: const EdgeInsets.only(top: 14), child: child)),
         bottomNavigationBar: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            padding: const EdgeInsets.fromLTRB(40, 0, 40, 22),
             child: GlassCard(
-              radius: 30,
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              child: Row(children: [
-                for (var i = 0; i < tabs.length; i++)
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => context.go(tabs[i].path),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 260),
-                        curve: Curves.easeOutCubic,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(color: i == current ? Brand.goldSoft : Colors.transparent, borderRadius: BorderRadius.circular(22)),
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          AnimatedScale(scale: i == current ? 1.12 : 1, duration: const Duration(milliseconds: 260), curve: Curves.easeOutBack, child: Icon(tabs[i].icon, size: 24, color: i == current ? Brand.gold300 : Brand.inkSoft)),
-                          const SizedBox(height: 3),
-                          Text(
-                            t(tabs[i].label),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 11, fontWeight: i == current ? FontWeight.w800 : FontWeight.w500, color: i == current ? Brand.gold300 : Brand.inkSoft),
-                          ),
-                        ]),
-                      ),
+              radius: 34,
+              alpha: 0.32,
+              blur: 30,
+              padding: const EdgeInsets.all(5),
+              child: SizedBox(
+                height: 54,
+                child: LayoutBuilder(builder: (context, box) {
+                  final w = box.maxWidth / tabs.length;
+                  return Stack(children: [
+                    // the frosted pill that slides under the selected icon
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 420),
+                      curve: Curves.easeOutBack,
+                      left: current * w,
+                      top: 0,
+                      bottom: 0,
+                      width: w,
+                      child: DecoratedBox(decoration: navPill(28)),
                     ),
-                  ),
-              ]),
+                    Row(children: [
+                      for (var i = 0; i < tabs.length; i++)
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => context.go(tabs[i].path),
+                            child: Center(
+                              child: AnimatedScale(
+                                scale: i == current ? 1.12 : 1,
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeOutBack,
+                                child: Icon(tabs[i].icon, size: 23, color: i == current ? Brand.gold300 : Brand.inkSoft),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ]),
+                  ]);
+                }),
+              ),
             ),
           ),
         ),

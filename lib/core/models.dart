@@ -1,3 +1,4 @@
+import 'spec.dart';
 import 'role.dart';
 
 class Machine {
@@ -6,9 +7,16 @@ class Machine {
     required this.status, required this.speed, required this.speedUnit, required this.outputUnit,
     required this.todayProduction, required this.todayTarget, required this.efficiency,
     this.model = '', this.company, this.companyId, this.shifts, this.info,
+    this.name = '', this.description = '', this.productionSpeed = '', this.cupSize = '', this.paperRequired = '', this.price, this.photos = const [], this.lastSeenAt, this.spec, this.serial = '',
   });
 
   final String id, code, typeKey, typeName, status, speedUnit, outputUnit, model;
+  final String name, description, productionSpeed, cupSize, paperRequired; // product details entered in the dashboard
+  final num? price; // set in the dashboard; null = not priced yet
+  final List<String> photos; // paths like /api/v1/uploads/x.jpg (see photoUrl)
+  final DateTime? lastSeenAt; // last data received from the machine
+  final String serial; // nameplate serial number
+  final Spec? spec; // structured size / speed / paper ranges (null on older machines: the text fields still work)
   final String? company, companyId; // set for staff roles; null = not assigned to a customer yet
   final num speed, todayProduction, todayTarget, efficiency;
   final Map<String, num>? shifts; // only on the detail endpoint
@@ -20,6 +28,16 @@ class Machine {
         typeKey: j['typeKey'],
         typeName: j['typeName'],
         model: j['model'] ?? '',
+        name: j['name'] ?? '',
+        description: j['description'] ?? '',
+        productionSpeed: j['productionSpeed'] ?? '',
+        cupSize: j['cupSize'] ?? '',
+        paperRequired: j['paperRequired'] ?? '',
+        price: j['price'],
+        photos: [for (final p in (j['photos'] as List? ?? const [])) p as String],
+        spec: Spec.fromJson(j['spec']),
+        serial: j['serial'] ?? '',
+        lastSeenAt: j['lastSeenAt'] == null ? null : DateTime.tryParse('${j['lastSeenAt']}')?.toLocal(),
         company: j['company'],
         companyId: j['companyId'],
         status: j['status'],
@@ -69,14 +87,55 @@ class Plant {
 }
 
 class Me {
-  Me({required this.name, required this.email, required this.company, required this.language, this.role = 'customer'});
-  final String name, email, company, language, role;
+  Me({required this.name, required this.email, required this.company, required this.language, this.role = 'customer', this.phone = '', this.photo, this.address = '', this.loginEmail = '', this.shift = '', this.street = '', this.city = '', this.state = '', this.zip = '', this.gstin = '', this.pan = '', this.cin = '', this.udyam = ''});
+  final String name, email, company, language, role, phone, address, loginEmail; // email = what to show (email, else phone); loginEmail = the real email or ''
+  final String shift; // technicians: "09:00 – 18:00" (set in the dashboard), else ''
+  final String street, city, state, zip, gstin, pan, cin, udyam; // company address parts and government IDs (all optional)
+  final String? photo; // path like /api/v1/uploads/x.jpg (see photoUrl)
   factory Me.fromJson(Map<String, dynamic> j) => Me(
         name: j['user']['name'] ?? '',
         email: j['user']['email'] ?? j['user']['phone'] ?? '',
+        loginEmail: j['user']['email'] ?? '',
+        phone: j['user']['phone'] ?? '',
+        photo: j['user']['photo'],
         company: j['company']['name'] ?? '',
+        address: j['company']['address'] ?? '',
+        shift: (j['user']['shift'] is Map && (j['user']['shift']['start'] ?? '') != '') ? '${j['user']['shift']['start']} – ${j['user']['shift']['end']}' : '',
+        street: j['company']['location']?['street'] ?? '',
+        city: j['company']['location']?['city'] ?? '',
+        state: j['company']['location']?['state'] ?? '',
+        zip: j['company']['location']?['zip'] ?? '',
+        gstin: j['company']['gstin'] ?? '',
+        pan: j['company']['pan'] ?? '',
+        cin: j['company']['cin'] ?? '',
+        udyam: j['company']['udyam'] ?? '',
         language: j['user']['language'] ?? 'en',
         role: j['user']['role'] ?? 'customer',
+      );
+}
+
+/// One machine given to one technician for one day.
+/// One change of a task's stage: who did it, when, and an optional note.
+class AssignmentEvent {
+  AssignmentEvent({required this.status, required this.at, this.from, this.byName = '', this.role = '', this.note = ''});
+  final String status, byName, role, note; // role: technician | customer (owner)
+  final String? from; // null for the first entry ("assigned")
+  final DateTime at;
+  factory AssignmentEvent.fromJson(Map<String, dynamic> j) => AssignmentEvent(
+        status: j['status'], from: j['from'], byName: j['byName'] ?? '', role: j['role'] ?? '', note: j['note'] ?? '', at: DateTime.parse(j['at']).toLocal(),
+      );
+}
+
+class Assignment {
+  Assignment({required this.id, required this.date, required this.machineId, required this.code, required this.machine, required this.technicianId, required this.technician, required this.status, this.note = '', this.history = const []});
+  final String id, date, machineId, code, machine, technicianId, technician, status, note; // status: assigned | started | running | done
+  final List<AssignmentEvent> history; // oldest first
+  bool get done => status == 'done';
+  bool get working => status == 'started' || status == 'running';
+  factory Assignment.fromJson(Map<String, dynamic> j) => Assignment(
+        id: j['id'], date: j['date'], machineId: j['machineId'], code: j['code'] ?? '', machine: j['machine'] ?? '',
+        technicianId: j['technicianId'], technician: j['technician'] ?? '', status: j['status'], note: j['note'] ?? '',
+        history: [for (final h in (j['history'] as List? ?? const [])) AssignmentEvent.fromJson(h)],
       );
 }
 
@@ -96,8 +155,8 @@ class ReportData {
 }
 
 class AlertItem {
-  AlertItem({required this.id, required this.machineId, required this.code, required this.message, required this.status, required this.createdAt});
-  final String id, message, status;
+  AlertItem({required this.id, required this.machineId, required this.code, required this.message, required this.status, required this.createdAt, this.type = ''});
+  final String id, message, status, type;
   final String? machineId, code;
   final DateTime createdAt;
   factory AlertItem.fromJson(Map<String, dynamic> j) => AlertItem(
@@ -105,16 +164,20 @@ class AlertItem {
         machineId: j['machineId'],
         code: j['code'],
         message: j['message'],
+        type: j['type'] ?? '',
         status: j['status'],
         createdAt: DateTime.parse(j['createdAt']).toLocal(),
       );
 }
 
 class Part {
-  Part({required this.id, required this.name, required this.sku, required this.price});
-  final int id;
-  final String name, sku, price;
-  factory Part.fromJson(Map<String, dynamic> j) => Part(id: j['id'], name: j['name'], sku: j['sku'] ?? '', price: '${j['price']}');
+  Part({required this.id, required this.name, required this.sku, required this.price, this.description = '', this.image, this.stock = 0});
+  final String id, name, sku, description;
+  final num price;
+  final int stock;
+  final String? image; // path like /api/v1/uploads/x.jpg (see photoUrl)
+  bool get inStock => stock > 0;
+  factory Part.fromJson(Map<String, dynamic> j) => Part(id: j['id'], name: j['name'], sku: j['sku'] ?? '', price: j['price'] ?? 0, description: j['description'] ?? '', image: j['image'], stock: j['stock'] ?? 0);
 }
 
 class Ticket {
@@ -207,8 +270,9 @@ class MachineInfo {
 }
 
 class TopMachine {
-  TopMachine(this.id, this.code, this.typeKey, this.value, this.unit);
+  TopMachine(this.id, this.code, this.typeKey, this.value, this.unit, [this.photo]);
   final String id, code, typeKey, unit;
+  final String? photo;
   final num value;
 }
 
@@ -219,37 +283,71 @@ class Stats {
   final List<TopMachine> top;
   factory Stats.fromJson(Map<String, dynamic> j) => Stats(
         uptime: j['uptime'], efficiency: j['efficiency'], downtimeMin: j['downtimeMin'], weekProduced: j['weekProduced'], monthProduced: j['monthProduced'],
-        top: [for (final t in j['top']) TopMachine(t['id'], t['code'], t['typeKey'], t['value'], t['unit'])],
+        top: [for (final t in j['top']) TopMachine(t['id'], t['code'], t['typeKey'], t['value'], t['unit'], t['photo'])],
       );
 }
 
 /// A Skylyf machine model the customer can register (add to their plant).
 class CatalogItem {
-  CatalogItem({required this.id, required this.name, required this.model, required this.typeKey, required this.tagline, required this.speed, required this.specs});
-  final String id, name, model, typeKey, tagline, speed;
+  CatalogItem({required this.id, required this.name, required this.model, required this.typeKey, required this.tagline, required this.speed, required this.specs, this.description = '', this.cupSize = '', this.paperRequired = '', this.price, this.photos = const [], this.spec});
+  final Spec? spec;
+  final String id, name, model, typeKey, tagline, speed, description, cupSize, paperRequired;
   final List<String> specs;
+  final num? price;
+  final List<String> photos; // paths like /api/v1/uploads/x.jpg (see photoUrl)
   factory CatalogItem.fromJson(Map<String, dynamic> j) => CatalogItem(
-        id: j['id'], name: j['name'], model: j['model'], typeKey: j['typeKey'], tagline: j['tagline'], speed: j['speed'], specs: [for (final s in j['specs']) s as String],
+        id: j['id'], name: j['name'], model: j['model'], typeKey: j['typeKey'], tagline: j['tagline'] ?? '', speed: j['speed'] ?? '', specs: [for (final s in (j['specs'] as List? ?? const [])) s as String],
+        description: j['description'] ?? '', cupSize: j['cupSize'] ?? '', paperRequired: j['paperRequired'] ?? '', price: j['price'],
+        photos: [for (final p in (j['photos'] as List? ?? const [])) p as String], spec: Spec.fromJson(j['spec']),
       );
 }
 
+/// One machine in the "Register new" grid: a model Skylyf sells (managed in the dashboard's Machines screen). No stock: the owner
+/// already bought it and says which one and how many.
+class StoreItem {
+  StoreItem({required this.id, required this.name, required this.model, required this.typeKey, required this.typeName, this.description = '', this.speed = '', this.cupSize = '', this.paperRequired = '', this.price, this.photos = const [], this.specs = const [], this.spec});
+  final Spec? spec;
+  final String id, name, model, typeKey, typeName, description, speed, cupSize, paperRequired;
+  final num? price;
+  final List<String> photos;
+  final List<String> specs;
+
+  factory StoreItem.fromCatalog(CatalogItem c) => StoreItem(
+        id: c.id, name: c.name, model: c.model, typeKey: c.typeKey,
+        typeName: c.typeKey.isEmpty ? '' : c.typeKey.replaceAll('_', ' ').split(' ').map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}').join(' '),
+        description: c.description.isNotEmpty ? c.description : c.tagline, speed: c.speed, cupSize: c.cupSize, paperRequired: c.paperRequired, price: c.price, photos: c.photos, specs: c.specs, spec: c.spec,
+      );
+
+  /// Body of POST /registrations
+  Map<String, dynamic> get pick => {'catalogId': id};
+  static const maxQty = 50;
+}
+
 class Registration {
-  Registration({required this.id, required this.model, required this.typeKey, required this.serial, required this.nickname, required this.status, required this.createdAt, this.company});
+  Registration({required this.id, required this.model, required this.typeKey, required this.serial, required this.nickname, required this.status, required this.createdAt, this.company, this.serials = const [], this.qty = 1});
   final String id, model, typeKey, serial, nickname, status; // status: pending | approved | rejected
+  final List<String> serials; // one per piece
+  final int qty;
   final String? company; // shown to the owner
   final DateTime createdAt;
   factory Registration.fromJson(Map<String, dynamic> j) => Registration(
-        id: j['id'], model: j['model'], typeKey: j['typeKey'], serial: j['serial'], nickname: j['nickname'], status: j['status'], createdAt: DateTime.parse(j['createdAt']).toLocal(), company: j['company'],
+        id: j['id'], model: j['model'], typeKey: j['typeKey'], serial: j['serial'] ?? '', nickname: j['nickname'] ?? '', status: j['status'], createdAt: DateTime.parse(j['createdAt']).toLocal(), company: j['company'],
+        serials: [for (final v in (j['serials'] as List? ?? const [])) v as String], qty: j['qty'] ?? 1,
       );
 }
 
 class Technician {
-  Technician({required this.id, required this.name, required this.phone, this.assigned = false, this.companies = const []});
-  final String id, name, phone;
+  Technician({required this.id, required this.name, required this.phone, this.assigned = false, this.companies = const [], this.email = '', this.photo, this.shift = '', this.city = ''});
+  final String id, name, phone, email, shift, city; // shift like "09:00 – 18:00"
+  final String? photo; // path like /api/v1/uploads/x.jpg (see photoUrl)
   final bool assigned; // in a customer's detail: is this technician assigned to that customer?
   final List<String> companies; // owner view: customers this technician serves
   factory Technician.fromJson(Map<String, dynamic> j) => Technician(
         id: j['id'], name: j['name'], phone: j['phone'] ?? '', assigned: j['assigned'] ?? false, companies: [for (final c in (j['companies'] as List? ?? const [])) c as String],
+        email: j['email'] ?? '',
+        photo: j['photo'],
+        shift: (j['shift'] is Map && (j['shift']['start'] ?? '') != '') ? '${j['shift']['start']} – ${j['shift']['end']}' : '',
+        city: j['address'] is Map ? (j['address']['city'] ?? '') : '',
       );
 }
 

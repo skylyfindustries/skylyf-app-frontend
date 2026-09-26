@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/feedback.dart';
 import '../../core/export.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
@@ -11,6 +12,7 @@ import '../../core/widgets.dart';
 import '../home/home_screen.dart' show StatusCount;
 import '../machines/machines_screen.dart' show MachineRow;
 import '../machines/manage_machine.dart';
+import '../team/stages.dart';
 
 // ---------- shared bits ----------
 class RoleBadge extends StatelessWidget {
@@ -75,14 +77,18 @@ class TicketCard extends ConsumerWidget {
   final bool owner; // owner: reassign to another technician
 
   Future<void> _move(BuildContext context, WidgetRef ref, String status) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(apiProvider).patch('/tickets/${k.id}', {'status': status});
-      ref.invalidate(staffTicketsProvider);
-      messenger.showSnackBar(SnackBar(content: Text(status == 'done' ? '${k.code} marked resolved' : 'Started work on ${k.code}')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-    }
+    final done = status == 'done';
+    await guarded(
+      context,
+      title: done ? 'Mark resolved' : 'Start work',
+      confirm: done ? 'Mark ${k.code} as resolved?' : 'Start work on ${k.code}?',
+      action: done ? 'Yes, resolve' : 'Yes, start',
+      success: done ? '${k.code} marked resolved.' : 'Started work on ${k.code}.',
+      run: () async {
+        await ref.read(apiProvider).patch('/tickets/${k.id}', {'status': status});
+        ref.invalidate(staffTicketsProvider);
+      },
+    );
   }
 
   Future<void> _reassign(BuildContext context, WidgetRef ref) async {
@@ -93,14 +99,17 @@ class TicketCard extends ConsumerWidget {
       builder: (_) => _ReassignSheet(current: k.technicianId),
     );
     if (techId == null || techId == k.technicianId || !context.mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(apiProvider).patch('/tickets/${k.id}', {'technicianId': techId});
-      ref.invalidate(staffTicketsProvider);
-      messenger.showSnackBar(const SnackBar(content: Text('Task reassigned')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-    }
+    await guarded(
+      context,
+      title: 'Reassign task',
+      confirm: 'Give ${k.code} to another technician?',
+      action: 'Yes, reassign',
+      success: 'The task was reassigned.',
+      run: () async {
+        await ref.read(apiProvider).patch('/tickets/${k.id}', {'technicianId': techId});
+        ref.invalidate(staffTicketsProvider);
+      },
+    );
   }
 
   @override
@@ -117,7 +126,7 @@ class TicketCard extends ConsumerWidget {
             Expanded(child: Text(k.company, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Brand.inkSoft))),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: _priorityColor(k.priority).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12)),
+              decoration: glassTint(_priorityColor(k.priority), 12),
               child: Text(k.priority.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _priorityColor(k.priority))),
             ),
           ]),
@@ -194,6 +203,9 @@ class TechHomeScreen extends ConsumerWidget {
     Future<void> refresh() async {
       ref.invalidate(overviewProvider);
       ref.invalidate(staffTicketsProvider);
+      ref.invalidate(assignmentsProvider(_today()));
+      ref.invalidate(myTasksProvider);
+      ref.invalidate(meProvider);
       await ref.read(staffTicketsProvider.future);
     }
 
@@ -209,7 +221,9 @@ class TechHomeScreen extends ConsumerWidget {
             final pending = tickets.where((t) => t.status != 'done').take(3);
             return ListView(padding: navClearance, physics: const AlwaysScrollableScrollPhysics(), children: [
               const _Header('Hello').reveal(0),
-              const SizedBox(height: 18),
+              const SizedBox(height: 14),
+              const _TodayProgress().reveal(1),
+              const SizedBox(height: 14),
               Row(children: [
                 Expanded(child: StatTile(LucideIcons.circleAlert, n('open'), 'My open tasks', color: Brand.stopped)),
                 const SizedBox(width: 10),
@@ -217,6 +231,8 @@ class TechHomeScreen extends ConsumerWidget {
                 const SizedBox(width: 10),
                 Expanded(child: StatTile(LucideIcons.circleCheck, n('done'), 'Resolved', color: Brand.running)),
               ]).reveal(1),
+              const SectionTitle(LucideIcons.calendarCheck, "Today's assignments").reveal(2),
+              const _TodayAssignments(),
               const SectionTitle(LucideIcons.triangleAlert, 'Machines down (my customers)'),
               if (ov.attention.isEmpty) const GlassCard(child: Text('No machines are down')),
               for (final a in ov.attention)
@@ -247,46 +263,135 @@ class TechHomeScreen extends ConsumerWidget {
   }
 }
 
-class TicketsScreen extends ConsumerStatefulWidget {
-  const TicketsScreen({super.key});
-
-  @override
-  ConsumerState<TicketsScreen> createState() => _TicketsScreenState();
+String _today() {
+  final d = DateTime.now();
+  return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 }
 
-class _TicketsScreenState extends ConsumerState<TicketsScreen> {
-  String _status = 'open';
+/// Top of the technician's dashboard: how many machines I have to run today and how far along I am.
+class _TodayProgress extends ConsumerWidget {
+  const _TodayProgress();
+
+  Widget _stat(String label, int value, Color color) => Expanded(
+        child: Column(children: [
+          Text('$value', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color, height: 1)),
+          const SizedBox(height: 3),
+          Text(label, style: const TextStyle(fontSize: 12, color: Brand.inkSoft)),
+        ]),
+      );
 
   @override
-  Widget build(BuildContext context) {
-    final canAct = (ref.watch(roleProvider) ?? Role.technician).canManageTickets;
-    return asyncView(
-      ref.watch(staffTicketsProvider),
-      (all) {
-        final shown = all.where((k) => k.status == _status).toList();
-        return RefreshIndicator(
-          color: Brand.gold500,
-          onRefresh: () async {
-            ref.invalidate(staffTicketsProvider);
-            await ref.read(staffTicketsProvider.future);
-          },
-          child: ListView(padding: navClearance, physics: const AlwaysScrollableScrollPhysics(), children: [
-            Text('My tasks', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 4),
-            const Muted('Tasks customers have given to you', size: 13),
-            const SizedBox(height: 12),
-            Segments<String>(
-              options: [for (final (s, l) in const [('open', 'Open'), ('in_progress', 'In progress'), ('done', 'Done')]) (s, '$l (${all.where((k) => k.status == s).length})')],
-              value: _status,
-              onChanged: (v) => setState(() => _status = v),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rows = ref.watch(assignmentsProvider(_today())).valueOrNull;
+    final shift = ref.watch(meProvider).valueOrNull?.shift ?? '';
+    if (rows == null) return const SizedBox(height: 150, child: Center(child: CircularProgressIndicator(color: Brand.gold500)));
+    final total = rows.length, done = rows.where((a) => a.done).length, left = total - done, working = rows.where((a) => a.working).length;
+    final pct = total == 0 ? 0.0 : done / total;
+    final finished = total > 0 && left == 0;
+    final color = finished ? Brand.running : Brand.gold500;
+    return GlassCard(
+      alpha: 0.92,
+      blur: 8,
+      radius: 24,
+      padding: const EdgeInsets.all(18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(LucideIcons.calendarCheck, size: 18, color: Brand.gold300),
+          const SizedBox(width: 8),
+          const Text("Today's plan", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const Spacer(),
+          if (shift.isNotEmpty) ...[const Icon(LucideIcons.clock, size: 14, color: Brand.inkSoft), const SizedBox(width: 4), Muted('Shift $shift', size: 12)],
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          SizedBox(
+            width: 92,
+            height: 92,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(end: pct),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOut,
+              builder: (_, v, __) => Stack(alignment: Alignment.center, children: [
+                SizedBox(width: 92, height: 92, child: CircularProgressIndicator(value: v, strokeWidth: 10, strokeCap: StrokeCap.round, color: color, backgroundColor: Brand.track)),
+                Text('${(v * 100).round()}%', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              ]),
             ),
-            const SizedBox(height: 14),
-            if (shown.isEmpty) const Padding(padding: EdgeInsets.all(32), child: Center(child: Muted('Nothing here', size: 14))),
-            for (final (i, k) in shown.indexed) TicketCard(k, actions: canAct).reveal(i),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: total == 0
+                ? const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('No machines assigned', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    SizedBox(height: 4),
+                    Muted('Your owner has not given you machines for today yet.', size: 13),
+                  ])
+                : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(finished ? 'All done. Great work!' : '$left machine${left == 1 ? '' : 's'} left to run', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Muted('$done of $total machines finished today${working > 0 ? ' · $working working now' : ''}', size: 13),
+                  ]),
+          ),
+        ]),
+        if (total > 0) ...[
+          const SizedBox(height: 16),
+          const Divider(height: 1, color: Brand.line),
+          const SizedBox(height: 12),
+          Row(children: [_stat('To do', total - done - working, Brand.inkSoft), _stat('Working', working, Brand.idle), _stat('Done', done, Brand.running)]),
+        ],
+      ]),
+    );
+  }
+}
+
+/// The machines the owner gave ME for today; tap the pill to mark one done.
+class _TodayAssignments extends ConsumerWidget {
+  const _TodayAssignments();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final date = _today();
+    return asyncView(
+      ref.watch(assignmentsProvider(date)),
+      (rows) {
+        if (rows.isEmpty) return const GlassCard(child: Text('Nothing assigned for today'));
+        return GlassCard(
+          alpha: 0.92,
+          blur: 8,
+          padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+          child: Column(children: [
+            for (final (i, a) in rows.indexed) ...[
+              if (i > 0) const Divider(height: 1, color: Brand.line),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => context.push('/machine/${a.machineId}'),
+                      behavior: HitTestBehavior.opaque,
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(a.code, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                        if (a.machine.isNotEmpty) Text(a.machine, style: const TextStyle(fontSize: 12, color: Brand.inkSoft)),
+                        if (!a.done && a.status != 'assigned') Padding(padding: const EdgeInsets.only(top: 3), child: StagePill(a.status)),
+                        if (a.note.isNotEmpty) Text(a.note, style: const TextStyle(fontSize: 12, color: Brand.gold300)),
+                      ]),
+                    ),
+                  ),
+                  if (nextStage(a.status) case final next?)
+                    FilledButton.tonalIcon(
+                      onPressed: () => advanceAssignment(context, ref, a),
+                      icon: Icon(stageIcon(next), size: 16),
+                      label: Text(nextAction(a.status), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                      style: FilledButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 12), backgroundColor: stageColor(next).withValues(alpha: 0.14), foregroundColor: stageColor(next)),
+                    )
+                  else
+                    StagePill(a.status),
+                ]),
+              ),
+            ],
           ]),
         );
       },
-      onRetry: () => ref.invalidate(staffTicketsProvider),
+      onRetry: () => ref.invalidate(assignmentsProvider(date)),
     );
   }
 }
@@ -333,7 +438,7 @@ class AdminHomeScreen extends ConsumerWidget {
               GlassCard(
                 onTap: () => context.go('/machines'),
                 child: Row(children: [
-                  Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Brand.idle.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12)), child: const Icon(LucideIcons.warehouse, size: 20, color: Brand.idle)),
+                  Container(padding: const EdgeInsets.all(10), decoration: glassTint(Brand.idle, 12), child: const Icon(LucideIcons.warehouse, size: 20, color: Brand.idle)),
                   const SizedBox(width: 12),
                   Expanded(child: Text('${ov.unassigned} machines are not assigned to a customer', style: const TextStyle(fontWeight: FontWeight.w700))),
                   const Icon(LucideIcons.chevronRight, size: 20, color: Brand.inkSoft),
@@ -377,15 +482,20 @@ class _RegistrationCard extends ConsumerWidget {
   final Registration r;
 
   Future<void> _decide(BuildContext context, WidgetRef ref, String status) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(apiProvider).patch('/registrations/${r.id}', {'status': status});
-      refreshFleet(ref);
-      ref.invalidate(staffTicketsProvider);
-      messenger.showSnackBar(SnackBar(content: Text(status == 'approved' ? '${r.nickname} added to ${r.company}' : 'Registration rejected')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-    }
+    final approve = status == 'approved';
+    await guarded(
+      context,
+      title: approve ? 'Approve registration' : 'Reject registration',
+      confirm: approve ? 'Approve ${r.model} for ${r.company}?' : 'Reject this registration?',
+      action: approve ? 'Yes, approve' : 'Yes, reject',
+      danger: !approve,
+      success: approve ? '${r.model} was added to ${r.company}.' : 'The registration was rejected.',
+      run: () async {
+        await ref.read(apiProvider).patch('/registrations/${r.id}', {'status': status});
+        refreshFleet(ref);
+        ref.invalidate(staffTicketsProvider);
+      },
+    );
   }
 
   @override
@@ -478,9 +588,9 @@ class CustomersScreen extends ConsumerWidget {
             const SizedBox(height: 4),
             const Muted('A customer is a separate tenant: they only ever see their own machines.', size: 13),
             const SizedBox(height: 16),
-            TextFormField(controller: name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Company name', prefixIcon: Icon(LucideIcons.building2)), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter the company name' : null),
+            above('Company name', TextFormField(controller: name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.building2)), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter the company name' : null)),
             const SizedBox(height: 12),
-            TextFormField(controller: city, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'City', prefixIcon: Icon(LucideIcons.mapPin)), validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the city' : null),
+            above('City', TextFormField(controller: city, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.mapPin)), validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter the city' : null)),
             const SizedBox(height: 18),
             FilledButton(onPressed: () { if (form.currentState!.validate()) Navigator.pop(c, true); }, child: const Text('Add customer')),
           ]),
@@ -491,14 +601,17 @@ class CustomersScreen extends ConsumerWidget {
     name.dispose();
     city.dispose();
     if (ok != true || !context.mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(apiProvider).post('/customers', {'name': n, 'city': ci});
-      refreshFleet(ref);
-      messenger.showSnackBar(SnackBar(content: Text('${n.trim().toUpperCase()} added. Now assign machines and technicians.')));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-    }
+    await guarded(
+      context,
+      title: 'Add customer',
+      confirm: 'Add ${n.trim().toUpperCase()} as a customer?',
+      action: 'Yes, add',
+      success: '${n.trim().toUpperCase()} added. Now assign machines and technicians.',
+      run: () async {
+        await ref.read(apiProvider).post('/customers', {'name': n, 'city': ci});
+        refreshFleet(ref);
+      },
+    );
   }
 }
 
@@ -507,15 +620,11 @@ class CustomerDetailScreen extends ConsumerWidget {
   const CustomerDetailScreen({super.key, required this.id});
   final String id;
 
-  Future<void> _api(BuildContext context, WidgetRef ref, Future<dynamic> Function() call, String done) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
+  Future<void> _api(BuildContext context, WidgetRef ref, Future<dynamic> Function() call, String done, {String title = 'Update customer', String confirm = 'Do you want to continue?', bool danger = false}) async {
+    await guarded(context, title: title, confirm: confirm, danger: danger, success: done, run: () async {
       await call();
       refreshFleet(ref, customerId: id);
-      messenger.showSnackBar(SnackBar(content: Text(done)));
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e')));
-    }
+    });
   }
 
   @override
@@ -548,7 +657,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
-                      onPressed: () => _api(context, ref, () => ref.read(apiProvider).patch('/machines/${m.id}', {'companyId': null}), '${m.code} removed from ${d.summary.name}'),
+                      onPressed: () => _api(context, ref, () => ref.read(apiProvider).patch('/machines/${m.id}', {'companyId': null}), '${m.code} removed from ${d.summary.name}', title: 'Remove machine', confirm: 'Remove ${m.code} from ${d.summary.name}?', danger: true),
                       icon: const Icon(LucideIcons.unlink, size: 14),
                       label: const Text('Remove from customer'),
                       style: TextButton.styleFrom(foregroundColor: Brand.stopped),
@@ -569,7 +678,7 @@ class CustomerDetailScreen extends ConsumerWidget {
                       value: t.assigned,
                       onChanged: (v) {
                         final next = v ? [...assignedIds, t.id] : [...assignedIds]..remove(t.id);
-                        _api(context, ref, () => ref.read(apiProvider).patch('/customers/$id', {'technicianIds': next}), v ? '${t.name} can now serve ${d.summary.name}' : '${t.name} removed');
+                        _api(context, ref, () => ref.read(apiProvider).patch('/customers/$id', {'technicianIds': next}), v ? '${t.name} can now serve ${d.summary.name}' : '${t.name} removed', title: 'Update technicians', confirm: v ? 'Let ${t.name} serve ${d.summary.name}?' : 'Remove ${t.name} from ${d.summary.name}?');
                       },
                       secondary: CircleAvatar(backgroundColor: Brand.gold500, child: Text(t.name[0], style: const TextStyle(fontWeight: FontWeight.w800, color: Brand.navy900))),
                       title: Text(t.name, style: const TextStyle(fontWeight: FontWeight.w700)),
@@ -632,7 +741,7 @@ class CustomerDetailScreen extends ConsumerWidget {
       ),
     );
     if (picked == null || !context.mounted) return;
-    await _api(context, ref, () => ref.read(apiProvider).patch('/machines/${picked.id}', {'companyId': id}), '${picked.code} assigned');
+    await _api(context, ref, () => ref.read(apiProvider).patch('/machines/${picked.id}', {'companyId': id}), '${picked.code} assigned', title: 'Assign machine', confirm: 'Assign ${picked.code} to this customer?');
   }
 }
 

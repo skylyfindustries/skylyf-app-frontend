@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/api.dart';
 import '../../core/i18n.dart';
 import '../../core/machine_art.dart';
 import '../../core/models.dart';
@@ -10,6 +11,7 @@ import '../../core/providers.dart';
 import '../../core/role.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import 'spec_view.dart';
 import 'manage_machine.dart';
 
 class MachineDetailScreen extends ConsumerWidget {
@@ -31,6 +33,7 @@ class MachineDetailScreen extends ConsumerWidget {
             final info = m.info;
             return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
               _Hero(m, t).reveal(0),
+              if (m.photos.isNotEmpty || m.description.isNotEmpty || m.productionSpeed.isNotEmpty || m.spec != null || m.serial.isNotEmpty || m.cupSize.isNotEmpty || m.paperRequired.isNotEmpty) ...[const SizedBox(height: 12), _About(m).reveal(0)],
               if (role.canManageMachines) ...[const SizedBox(height: 12), ManageMachineCard(m).reveal(1)],
               const SizedBox(height: 14),
               Row(children: [
@@ -87,7 +90,7 @@ class _Hero extends ConsumerWidget {
       padding: EdgeInsets.zero,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Stack(children: [
-          MachineArt(m.typeKey, status: m.status, height: 190, radius: 0),
+          MachineArt(m.typeKey, photo: m.photos.firstOrNull, status: m.status, height: 190, radius: 0),
           Positioned(top: 12, right: 12, child: StatusBadge(m.status, t(m.statusLabel))),
         ]),
         Padding(
@@ -276,6 +279,45 @@ class _Shifts extends StatelessWidget {
               AnimatedBar((shifts[s] ?? 0) / max, height: 8),
             ]),
           ),
+      ]),
+    );
+  }
+}
+
+/// Photos and product details entered by Skylyf in the dashboard.
+class _About extends StatelessWidget {
+  const _About(this.m);
+  final Machine m;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = [if (m.serial.isNotEmpty) ('Serial number', m.serial), if ((m.price ?? 0) > 0) ('Price', '₹${fmt(m.price!)}')];
+    return GlassCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (m.photos.isNotEmpty)
+          SizedBox(
+            height: 170,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: m.photos.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (_, i) => ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.network(photoUrl(m.photos[i]), height: 170, width: 240, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(width: 240, color: Brand.goldSoft, child: const Icon(LucideIcons.imageOff, color: Brand.gold300))),
+              ),
+            ),
+          ),
+        if (m.description.isNotEmpty) ...[
+          SizedBox(height: m.photos.isNotEmpty ? 12 : 0),
+          Text(m.description, style: const TextStyle(fontSize: 14)),
+        ],
+        const Divider(height: 18, color: Brand.line),
+        SpecView(typeKey: m.typeKey, spec: m.spec, speedText: m.productionSpeed, sizeText: m.cupSize, paperText: m.paperRequired),
+        for (final r in rows) ...[
+          const Divider(height: 18, color: Brand.line),
+          InfoRow(r.$1, r.$2),
+        ],
       ]),
     );
   }

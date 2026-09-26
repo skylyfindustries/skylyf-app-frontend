@@ -3,8 +3,8 @@ import 'package:skylyf_machine/core/role.dart';
 
 void main() {
   test('each role gets its own tabs and permissions', () {
-    expect(Role.customer.tabs.map((t) => t.label), ['Home', 'Machines', 'Reports', 'Parts', 'Profile']);
-    expect(Role.technician.tabs.map((t) => t.label), ['Dashboard', 'Tickets', 'Machines', 'Profile']);
+    expect(Role.customer.tabs.map((t) => t.label), ['Home', 'Machines', 'Assignments', 'Parts', 'Profile']);
+    expect(Role.technician.tabs.map((t) => t.label), ['Dashboard', 'Tasks', 'Profile']);
     expect(Role.admin.tabs.map((t) => t.label), ['Overview', 'Customers', 'Machines', 'Team', 'Profile']);
     expect(Role.customer.canBuyParts && Role.customer.canRequestService, isTrue);
     expect(Role.technician.canManageTickets && !Role.technician.canBuyParts, isTrue);

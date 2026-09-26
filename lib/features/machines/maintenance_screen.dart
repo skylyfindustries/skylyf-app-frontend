@@ -48,7 +48,7 @@ class MaintenanceScreen extends ConsumerWidget {
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: statusTint(k.status).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+                              decoration: glassTint(statusTint(k.status), 20),
                               child: Text(
                                 k.type == 'request' ? (k.status == 'open' ? 'REQUESTED' : k.status == 'in_progress' ? 'IN PROGRESS' : 'RESOLVED') : 'COMPLETED',
                                 style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w800, color: statusTint(k.status)),

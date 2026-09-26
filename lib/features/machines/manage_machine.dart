@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../../core/feedback.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -47,16 +48,16 @@ class _AssignSheetState extends ConsumerState<_AssignSheet> {
   bool _busy = false;
 
   Future<void> _save() async {
-    setState(() => _busy = true);
-    try {
-      await ref.read(apiProvider).patch('/machines/${widget.m.id}', {'companyId': _cid});
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
+    final ok = await guarded(
+      context,
+      title: 'Assign machine',
+      confirm: 'Change who this machine is assigned to?',
+      action: 'Yes, assign',
+      success: 'The machine was assigned.',
+      busy: (b) => setState(() => _busy = b),
+      run: () => ref.read(apiProvider).patch('/machines/${widget.m.id}', {'companyId': _cid}),
+    );
+    if (ok && mounted) Navigator.pop(context, true);
   }
 
   @override
@@ -68,7 +69,7 @@ class _AssignSheetState extends ConsumerState<_AssignSheet> {
         padding: const EdgeInsets.only(bottom: 8),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          decoration: BoxDecoration(color: sel ? Brand.goldSoft : Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: sel ? Brand.gold500 : Brand.line, width: sel ? 1.8 : 1)),
+          decoration: glassTint(sel ? Brand.gold500 : Colors.white, 16, sel),
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () => setState(() => _cid = id),
@@ -111,7 +112,6 @@ Future<void> showAddMachine(BuildContext context, WidgetRef ref, {String? preset
   final done = await _sheet<bool>(context, _AddSheet(presetCustomerId));
   if (done == true && context.mounted) {
     refreshFleet(ref, customerId: presetCustomerId);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Machine added')));
   }
 }
 
@@ -141,13 +141,16 @@ class _AddSheetState extends ConsumerState<_AddSheet> {
 
   Future<void> _submit() async {
     if (!_form.currentState!.validate()) return;
-    setState(() { _busy = true; _error = null; });
-    try {
-      await ref.read(apiProvider).post('/machines', {'catalogId': _model!.id, 'typeKey': _model!.typeKey, 'code': _code.text.trim(), 'serial': _serial.text.trim().toUpperCase(), 'companyId': _cid});
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
-      if (mounted) setState(() { _busy = false; _error = '$e'; });
-    }
+    final ok = await guarded(
+      context,
+      title: 'Add machine',
+      confirm: 'Add ${_model!.name} to this customer?',
+      action: 'Yes, add',
+      success: 'The machine was added.',
+      busy: (b) => setState(() => _busy = b),
+      run: () => ref.read(apiProvider).post('/machines', {'catalogId': _model!.id, 'typeKey': _model!.typeKey, 'code': _code.text.trim(), 'serial': _serial.text.trim().toUpperCase(), 'companyId': _cid}),
+    );
+    if (ok && mounted) Navigator.pop(context, true);
   }
 
   @override
@@ -162,37 +165,37 @@ class _AddSheetState extends ConsumerState<_AddSheet> {
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const Text('Add machine', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
             const SizedBox(height: 16),
-            DropdownButtonFormField<CatalogItem>(
+            above('Model', DropdownButtonFormField<CatalogItem>(
               initialValue: _model,
               isExpanded: true,
               dropdownColor: Brand.surface,
-              decoration: const InputDecoration(labelText: 'Model', prefixIcon: Icon(LucideIcons.factory)),
+              decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.factory)),
               items: [for (final c in catalog) DropdownMenuItem(value: c, child: Text('${c.model} • ${c.name}', overflow: TextOverflow.ellipsis))],
               onChanged: (v) => setState(() => _model = v),
               validator: (v) => v == null ? 'Choose a model' : null,
-            ),
+            )),
             const SizedBox(height: 12),
-            TextFormField(
+            above('Serial number', TextFormField(
               controller: _serial,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(labelText: 'Serial number', prefixIcon: Icon(LucideIcons.hash)),
+              decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.hash)),
               validator: (v) => (v == null || v.trim().length < 8) ? 'Enter the full serial number' : null,
-            ),
+            )),
             const SizedBox(height: 12),
-            TextFormField(
+            above('Machine name (e.g. PC-12)', TextFormField(
               controller: _code,
-              decoration: const InputDecoration(labelText: 'Machine name (e.g. PC-12)', prefixIcon: Icon(LucideIcons.tag)),
+              decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.tag)),
               validator: (v) => (v == null || v.trim().isEmpty) ? 'Give it a short name' : null,
-            ),
+            )),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String?>(
+            above('Assign to customer', DropdownButtonFormField<String?>(
               initialValue: _cid,
               isExpanded: true,
               dropdownColor: Brand.surface,
-              decoration: const InputDecoration(labelText: 'Assign to customer', prefixIcon: Icon(LucideIcons.building2)),
+              decoration: const InputDecoration(prefixIcon: Icon(LucideIcons.building2)),
               items: [const DropdownMenuItem(value: null, child: Text('Unassigned (Skylyf stock)')), for (final c in customers) DropdownMenuItem(value: c.id, child: Text(c.name))],
               onChanged: (v) => setState(() => _cid = v),
-            ),
+            )),
             if (_error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(_error!, style: const TextStyle(color: Brand.stopped, fontWeight: FontWeight.w600))),
             const SizedBox(height: 18),
             FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(height: 22, width: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Brand.navy900)) : const Text('Add machine')),
@@ -217,7 +220,7 @@ class ManageMachineCard extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: (assigned ? Brand.running : Brand.idle).withValues(alpha: 0.14), borderRadius: BorderRadius.circular(12)), child: Icon(assigned ? LucideIcons.building2 : LucideIcons.warehouse, size: 20, color: assigned ? Brand.running : Brand.idle)),
+          Container(padding: const EdgeInsets.all(10), decoration: glassTint((assigned ? Brand.running : Brand.idle), 12), child: Icon(assigned ? LucideIcons.building2 : LucideIcons.warehouse, size: 20, color: assigned ? Brand.running : Brand.idle)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Muted('Assigned to', size: 12), Text(m.company ?? 'Unassigned (Skylyf stock)', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))])),
         ]),

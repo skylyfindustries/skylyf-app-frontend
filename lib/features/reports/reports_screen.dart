@@ -11,7 +11,8 @@ import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
-  const ReportsScreen({super.key});
+  const ReportsScreen({super.key, this.standalone = false});
+  final bool standalone; // opened as its own page (title comes from the page bar) instead of a bottom tab
 
   @override
   ConsumerState<ReportsScreen> createState() => _ReportsScreenState();
@@ -19,6 +20,8 @@ class ReportsScreen extends ConsumerStatefulWidget {
 
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String _range = 'today', _kind = 'production';
+
+  static const _tableKinds = {'machines', 'assignments', 'service'};
 
   TableData _table(ReportData r) => (
         title: '$_kind report ($_range)',
@@ -33,13 +36,15 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   Widget build(BuildContext context) {
     final t = ref.watch(trProvider);
     final key = (range: _range, kind: _kind);
-    final report = ref.watch(reportProvider(key));
-    final kinds = [('production', t('Production')), ('downtime', t('Downtime')), ('performance', t('Machine Performance'))];
+    final isTable = _tableKinds.contains(_kind);
+    final report = ref.watch(reportProvider(isTable ? (range: _range, kind: 'production') : key));
+    final table = isTable ? ref.watch(tableReportProvider(key)) : null;
+    final kinds = [('production', t('Production')), ('downtime', t('Downtime')), ('performance', t('Machine Performance')), ('machines', t('Machines')), ('assignments', t('Assignments')), ('service', t('Service requests'))];
 
-    return ListView(padding: navClearance, children: [
+    return ListView(padding: widget.standalone ? const EdgeInsets.fromLTRB(16, 8, 16, 24) : navClearance, children: [
       Row(children: [
-        Expanded(child: Text(t('Reports'), style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
-        if (report.hasValue) ExportButton(() => _table(report.value!)),
+        Expanded(child: widget.standalone ? const SizedBox.shrink() : Text(t('Reports'), style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        if (isTable ? table!.hasValue : report.hasValue) ExportButton(() => isTable ? table!.value! : _table(report.value!)),
       ]),
       const SizedBox(height: 12),
       Segments<String>(options: [('today', t('Today')), ('7d', t('7 Days')), ('30d', t('30 Days'))], value: _range, onChanged: (v) => setState(() => _range = v)),
@@ -58,11 +63,42 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       ]),
       const SizedBox(height: 14),
       // asyncView returns a box-less widget; give the loading/error states a fixed height inside the ListView.
-      SizedBox(
-        height: report.hasValue ? null : 240,
-        child: asyncView(report, (r) => _Body(r, _kind, t), onRetry: () => ref.invalidate(reportProvider(key))),
-      ),
+      if (isTable)
+        SizedBox(
+          height: table!.hasValue ? null : 240,
+          child: asyncView(table, (r) => _TableBody(r), onRetry: () => ref.invalidate(tableReportProvider(key))),
+        )
+      else
+        SizedBox(
+          height: report.hasValue ? null : 240,
+          child: asyncView(report, (r) => _Body(r, _kind, t), onRetry: () => ref.invalidate(reportProvider(key))),
+        ),
     ]);
+  }
+}
+
+/// Plain table report (machines / assignments / service requests); the export button above downloads the same rows.
+class _TableBody extends StatelessWidget {
+  const _TableBody(this.r);
+  final TableData r;
+
+  @override
+  Widget build(BuildContext context) {
+    if (r.rows.isEmpty) return const Padding(padding: EdgeInsets.all(32), child: Center(child: Muted('No data for this period', size: 14)));
+    return GlassCard(
+      padding: const EdgeInsets.all(8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columnSpacing: 18,
+          headingRowHeight: 40,
+          dataRowMinHeight: 36,
+          dataRowMaxHeight: 52,
+          columns: [for (final c in r.cols) DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12)))],
+          rows: [for (final row in r.rows) DataRow(cells: [for (final v in row) DataCell(ConstrainedBox(constraints: const BoxConstraints(maxWidth: 200), child: Text(v, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis, maxLines: 2)))])],
+        ),
+      ),
+    );
   }
 }
 

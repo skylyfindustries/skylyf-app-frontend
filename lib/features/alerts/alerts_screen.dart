@@ -32,7 +32,7 @@ class AlertsScreen extends ConsumerWidget {
                       child: GlassCard(
                         onTap: a.machineId == null ? null : () => context.push('/machine/${a.machineId}'),
                         child: Row(children: [
-                          Icon(LucideIcons.triangleAlert, color: a.status == 'open' ? Brand.stopped : Brand.inkSoft),
+                          Icon(a.type == 'status' ? LucideIcons.info : LucideIcons.triangleAlert, color: a.status == 'open' ? Brand.stopped : Brand.inkSoft),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

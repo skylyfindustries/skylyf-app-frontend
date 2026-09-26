@@ -1,15 +1,20 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'api.dart';
 import 'theme.dart';
 
 /// Vector illustration of a machine (no image files needed, crisp at any size).
-/// Swap for real product photos later by passing an `imageUrl` in the API and using Image.network here.
+/// Shows the uploaded photo (a path from the API) when there is one; falls back to the drawing.
 class MachineArt extends StatelessWidget {
-  const MachineArt(this.typeKey, {super.key, this.status = 'running', this.height = 160, this.radius = 20});
+  const MachineArt(this.typeKey, {super.key, this.status = 'running', this.height = 160, this.radius = 20, this.photo, this.plain = false});
+  final bool plain; // no tinted backdrop behind the picture (the photo or drawing sits directly on the card)
   final String typeKey;
+  final String? photo;
   final String status;
   final double height;
   final double radius;
+
+  Widget get art => CustomPaint(painter: _MachinePainter(typeKey, status));
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -18,8 +23,10 @@ class MachineArt extends StatelessWidget {
           height: height,
           width: double.infinity,
           child: DecoratedBox(
-            decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFFFFF), Color(0xFFF3E9D2)])),
-            child: CustomPaint(painter: _MachinePainter(typeKey, status)),
+            decoration: plain ? const BoxDecoration() : const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFFFFFFF), Color(0xFFF3E9D2)])),
+            child: photo == null
+                ? art
+                : Image.network(photoUrl(photo!), fit: BoxFit.cover, errorBuilder: (_, __, ___) => art),
           ),
         ),
       );
@@ -51,6 +58,7 @@ class _MachinePainter extends CustomPainter {
         _generic(canvas, w, h, floor);
     }
 
+    if (status.isEmpty) return; // no lamp for machines that are not yours yet (store grid)
     // status lamp on top of the control box
     final lamp = statusColor(status);
     final c = Offset(w * 0.80, h * 0.20);
