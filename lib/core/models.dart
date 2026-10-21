@@ -8,6 +8,7 @@ class Machine {
     required this.todayProduction, required this.todayTarget, required this.efficiency,
     this.model = '', this.company, this.companyId, this.shifts, this.info,
     this.name = '', this.description = '', this.productionSpeed = '', this.cupSize = '', this.paperRequired = '', this.price, this.photos = const [], this.lastSeenAt, this.spec, this.serial = '',
+    this.todayPackages = 0, this.startCount = 0, this.stopCount = 0, this.vfdFrequency = 0, this.machineRuntime = 0, this.countInterval = 0,
   });
 
   final String id, code, typeKey, typeName, status, speedUnit, outputUnit, model;
@@ -19,6 +20,8 @@ class Machine {
   final Spec? spec; // structured size / speed / paper ranges (null on older machines: the text fields still work)
   final String? company, companyId; // set for staff roles; null = not assigned to a customer yet
   final num speed, todayProduction, todayTarget, efficiency;
+  final num todayPackages, startCount, stopCount; // from the PLC (MQTT): packages completed, start / stop counters
+  final num vfdFrequency, machineRuntime, countInterval; // more PLC readings, raw values
   final Map<String, num>? shifts; // only on the detail endpoint
   final MachineInfo? info; // only on the detail endpoint
 
@@ -47,6 +50,12 @@ class Machine {
         todayProduction: j['todayProduction'],
         todayTarget: j['todayTarget'],
         efficiency: j['efficiency'],
+        todayPackages: j['todayPackages'] ?? 0,
+        startCount: j['startCount'] ?? 0,
+        stopCount: j['stopCount'] ?? 0,
+        vfdFrequency: j['vfdFrequency'] ?? 0,
+        machineRuntime: j['machineRuntime'] ?? 0,
+        countInterval: j['countInterval'] ?? 0,
         shifts: (j['shifts'] as Map?)?.map((k, v) => MapEntry(k as String, v as num)),
         info: j['info'] == null ? null : MachineInfo.fromJson(j['info']),
       );
@@ -61,9 +70,9 @@ class Attention {
 }
 
 class Dashboard {
-  Dashboard({required this.running, required this.stopped, required this.idle, required this.today, required this.target, required this.attention, this.stats = const Stats()});
+  Dashboard({required this.running, required this.stopped, required this.idle, required this.today, required this.target, required this.attention, this.packagesToday = 0, this.stats = const Stats()});
   final int running, stopped, idle;
-  final num today, target;
+  final num today, target, packagesToday; // packagesToday = packages completed today, all machines
   final List<Attention> attention;
   final Stats stats;
 
@@ -76,6 +85,7 @@ class Dashboard {
         today: j['production']['today'],
         target: j['production']['target'],
         attention: [for (final a in j['attention']) Attention(a['machineId'], a['code'], a['status'])],
+        packagesToday: j['packages']?['today'] ?? 0,
         stats: j['stats'] == null ? const Stats() : Stats.fromJson(j['stats']),
       );
 }
@@ -171,13 +181,23 @@ class AlertItem {
 }
 
 class Part {
-  Part({required this.id, required this.name, required this.sku, required this.price, this.description = '', this.image, this.stock = 0});
-  final String id, name, sku, description;
-  final num price;
+  Part({required this.id, required this.name, required this.sku, required this.price, this.description = '', this.image, this.stock = 0, this.images = const [], this.categories = const [], this.shortDescription = '', this.regularPrice = 0, this.onSale = false, this.attributes = const [], this.weight = '', this.dimensions = '', this.tags = const [], this.brands = const [], this.content = const []});
+  final String id, name, sku, description, shortDescription, weight, dimensions;
+  final num price, regularPrice;
+  final bool onSale;
+  final List<String> images, categories, tags, brands;
+  final List<({String name, String value})> attributes;
+  final List<Map<String, dynamic>> content; // description blocks: {t: h|sub|p|ul|table|hr, ...}
   final int stock;
   final String? image; // path like /api/v1/uploads/x.jpg (see photoUrl)
   bool get inStock => stock > 0;
-  factory Part.fromJson(Map<String, dynamic> j) => Part(id: j['id'], name: j['name'], sku: j['sku'] ?? '', price: j['price'] ?? 0, description: j['description'] ?? '', image: j['image'], stock: j['stock'] ?? 0);
+  factory Part.fromJson(Map<String, dynamic> j) => Part(id: j['id'], name: j['name'], sku: j['sku'] ?? '', price: j['price'] ?? 0, description: j['description'] ?? '', image: j['image'], stock: j['stock'] ?? 0,
+        images: [for (final i in (j['images'] as List? ?? const [])) '$i'], categories: [for (final c in (j['categories'] as List? ?? const [])) '$c'],
+        shortDescription: j['shortDescription'] ?? '', regularPrice: j['regularPrice'] ?? 0, onSale: j['onSale'] ?? false,
+        attributes: [for (final a in (j['attributes'] as List? ?? const [])) (name: '${a['name']}', value: '${a['value']}')],
+        weight: j['weight'] ?? '', dimensions: j['dimensions'] ?? '',
+        tags: [for (final t in (j['tags'] as List? ?? const [])) '$t'], brands: [for (final b in (j['brands'] as List? ?? const [])) '$b'],
+        content: [for (final b in (j['content'] as List? ?? const [])) Map<String, dynamic>.from(b as Map)]);
 }
 
 class Ticket {
@@ -363,5 +383,43 @@ class CustomerDetail {
         machines: [for (final m in j['machineList']) Machine.fromJson(m)],
         technicians: [for (final t in j['technicianList']) Technician.fromJson(t)],
         users: [for (final u in j['userList']) StaffUser.fromJson(u)],
+      );
+}
+
+class OrderLine {
+  OrderLine({required this.partId, required this.name, required this.sku, required this.price, required this.qty, this.photo});
+  final String partId, name, sku;
+  final num price;
+  final int qty;
+  final String? photo;
+  factory OrderLine.fromJson(Map<String, dynamic> j) => OrderLine(partId: '${j['partId']}', name: j['name'] ?? '', sku: j['sku'] ?? '', price: j['price'] ?? 0, qty: j['qty'] ?? 1, photo: j['photo']);
+}
+
+/// A spare-parts order the owner placed. Returns/exchanges open once it is delivered (see [returnDays]).
+class PartOrder {
+  PartOrder({required this.id, required this.number, required this.invoiceNo, required this.createdAt, required this.status, required this.paid, required this.total, required this.gst, required this.subtotal, required this.items, this.deliveredAt});
+  static const returnDays = 7; // keep in step with RETURN_DAYS in the backend
+  final String id, number, invoiceNo, status;
+  final DateTime createdAt;
+  final DateTime? deliveredAt;
+  final bool paid;
+  final num total, gst, subtotal;
+  final List<OrderLine> items;
+  bool get canReturn => status == 'delivered' && deliveredAt != null && DateTime.now().difference(deliveredAt!).inDays < returnDays;
+  factory PartOrder.fromJson(Map<String, dynamic> j) => PartOrder(
+        id: j['id'], number: j['number'], invoiceNo: j['invoiceNo'] ?? '', createdAt: DateTime.parse(j['createdAt']).toLocal(), status: j['status'], paid: j['paid'] ?? false,
+        total: j['total'] ?? 0, gst: j['gst'] ?? 0, subtotal: j['subtotal'] ?? 0, items: [for (final i in (j['items'] as List? ?? const [])) OrderLine.fromJson(i)],
+        deliveredAt: j['deliveredAt'] == null ? null : DateTime.parse(j['deliveredAt']).toLocal(),
+      );
+}
+
+class ReturnRequest {
+  ReturnRequest({required this.id, required this.number, required this.orderId, required this.type, required this.reason, required this.status, required this.items, this.adminNote = '', this.note = '', required this.createdAt});
+  final String id, number, orderId, type, reason, status, adminNote, note; // type: return | exchange
+  final List<OrderLine> items;
+  final DateTime createdAt;
+  factory ReturnRequest.fromJson(Map<String, dynamic> j) => ReturnRequest(
+        id: j['id'], number: j['number'], orderId: '${j['orderId']}', type: j['type'], reason: j['reason'], status: j['status'], adminNote: j['adminNote'] ?? '', note: j['note'] ?? '',
+        items: [for (final i in (j['items'] as List? ?? const [])) OrderLine.fromJson({...Map<String, dynamic>.from(i), 'price': 0})], createdAt: DateTime.parse(j['createdAt']).toLocal(),
       );
 }

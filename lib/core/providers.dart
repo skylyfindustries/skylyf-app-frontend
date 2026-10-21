@@ -135,6 +135,57 @@ final partsProvider = FutureProvider.autoDispose.family<List<Part>, PartsKey>((r
   return [for (final r in rows) Part.fromJson(r)];
 });
 
+final partProvider = FutureProvider.autoDispose.family<Part, String>((ref, id) async => Part.fromJson(await ref.watch(apiProvider).get('/parts/$id')));
+
+/// Liked spare parts (ids). Toggling updates the heart at once and rolls back if the server call fails.
+class WishlistNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() {
+    _load();
+    return {};
+  }
+
+  Future<void> _load() async {
+    try {
+      final rows = await ref.read(apiProvider).get('/wishlist') as List;
+      state = {for (final r in rows) r['id'] as String};
+    } catch (_) {}
+  }
+
+  Future<void> toggle(String id) async {
+    final was = state.contains(id);
+    state = was ? ({...state}..remove(id)) : {...state, id};
+    try {
+      final api = ref.read(apiProvider);
+      if (was) {
+        await api.delete('/wishlist/$id');
+      } else {
+        await api.put('/wishlist/$id', {});
+      }
+      ref.invalidate(wishlistPartsProvider);
+    } catch (_) {
+      state = was ? {...state, id} : ({...state}..remove(id));
+    }
+  }
+}
+
+final wishlistProvider = NotifierProvider<WishlistNotifier, Set<String>>(WishlistNotifier.new);
+
+final wishlistPartsProvider = FutureProvider.autoDispose<List<Part>>((ref) async {
+  final rows = await ref.watch(apiProvider).get('/wishlist') as List;
+  return [for (final r in rows) Part.fromJson(r)];
+});
+
+final myOrdersProvider = FutureProvider.autoDispose<List<PartOrder>>((ref) async {
+  final rows = await ref.watch(apiProvider).get('/orders') as List;
+  return [for (final r in rows) PartOrder.fromJson(r)];
+});
+
+final myReturnsProvider = FutureProvider.autoDispose<List<ReturnRequest>>((ref) async {
+  final rows = await ref.watch(apiProvider).get('/returns') as List;
+  return [for (final r in rows) ReturnRequest.fromJson(r)];
+});
+
 final ticketsProvider = FutureProvider.autoDispose.family<List<Ticket>, String>((ref, id) async {
   final rows = await ref.watch(apiProvider).get('/machines/$id/maintenance') as List;
   return [for (final r in rows) Ticket.fromJson(r)];

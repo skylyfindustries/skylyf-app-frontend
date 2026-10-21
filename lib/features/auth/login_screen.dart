@@ -39,7 +39,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         MethodIcons(value: _method, onChanged: (m) => setState(() => _method = m)),
         const SizedBox(height: 8),
         TextButton(onPressed: () => context.push('/register'), child: const Text('New factory owner? Create an account', style: TextStyle(fontWeight: FontWeight.w700))),
-        const Muted('EVERYTHING YOUR PRODUCTION NEEDS'),
+        
       ]),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         switch (_method) {

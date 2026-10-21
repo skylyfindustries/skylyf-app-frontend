@@ -25,6 +25,7 @@ enum Role {
   bool get canBuyParts => this == customer;
   bool get canRequestService => this == customer;
   bool get canRegisterMachines => this == customer;
+  bool get canSetProductionGoal => this == customer || this == admin;
   bool get canManageTickets => this == technician;
   bool get canManageMachines => this == admin; // add machines, assign to customers, assign technicians
 

@@ -66,6 +66,10 @@ class ProfileScreen extends ConsumerWidget {
             _MenuTile(LucideIcons.shieldCheck, 'Security', 'Password, two-step verification, devices', () => context.push('/security')),
             if (!role.isStaff) ...[
               const Divider(height: 1, color: Brand.line, indent: 66),
+              _MenuTile(LucideIcons.packageCheck, 'My orders', 'Track orders, return or exchange parts', () => context.push('/my-orders')),
+              const Divider(height: 1, color: Brand.line, indent: 66),
+              _MenuTile(LucideIcons.heart, 'Wishlist', 'Spare parts you liked', () => context.push('/wishlist')),
+              const Divider(height: 1, color: Brand.line, indent: 66),
               _MenuTile(LucideIcons.wrench, 'My technicians', 'Add or remove your technicians', () => context.push('/technicians')),
               const Divider(height: 1, color: Brand.line, indent: 66),
               _MenuTile(LucideIcons.chartColumn, t('Reports'), 'Production, downtime and performance', () => context.push('/reports')),

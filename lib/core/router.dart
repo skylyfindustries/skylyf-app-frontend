@@ -8,9 +8,13 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/register_screen.dart';
 import '../features/home/role_home.dart';
 import '../features/machines/machine_detail_screen.dart';
+import '../features/machines/set_goal_screen.dart';
 import '../features/machines/machines_screen.dart';
 import '../features/machines/maintenance_screen.dart';
 import '../features/parts/cart_screen.dart';
+import '../features/parts/my_orders_screen.dart';
+import '../features/parts/part_detail_screen.dart';
+import '../features/parts/wishlist_screen.dart';
 import '../features/parts/parts_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/team/assignments_screen.dart';
@@ -74,12 +78,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
       GoRoute(path: '/machine/:id', builder: (_, s) => MachineDetailScreen(id: s.pathParameters['id']!)),
+      GoRoute(path: '/machine/:id/goal', builder: (_, s) => SetGoalScreen(id: s.pathParameters['id']!)),
       GoRoute(path: '/machine/:id/maintenance', builder: (_, s) => MaintenanceScreen(id: s.pathParameters['id']!)),
       GoRoute(path: '/customer/:id', builder: (_, s) => CustomerDetailScreen(id: s.pathParameters['id']!)),
       GoRoute(path: '/technicians', builder: (_, __) => const TechniciansScreen()),
       GoRoute(path: '/reports', builder: (_, __) => const GlassPage(title: 'Reports', child: ReportsScreen(standalone: true))),
       GoRoute(path: '/tasks', builder: (_, __) => const TasksScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
+      GoRoute(path: '/my-orders', builder: (_, __) => const MyOrdersScreen()),
+      GoRoute(path: '/wishlist', builder: (_, __) => const WishlistScreen()),
+      GoRoute(path: '/part/:id', builder: (_, s) => PartDetailScreen(id: s.pathParameters['id']!)),
       GoRoute(path: '/cart', builder: (_, __) => const CartScreen()),
       GoRoute(path: '/security', builder: (_, __) => const SecurityScreen()),
       GoRoute(path: '/help', builder: (_, __) => const HelpScreen()),

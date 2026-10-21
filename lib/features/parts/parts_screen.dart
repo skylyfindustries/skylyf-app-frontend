@@ -11,6 +11,7 @@ import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import 'cart.dart';
+import 'like_button.dart';
 
 /// Machine → Parts → cart → order. The catalog (photos, prices, stock) is managed in the dashboard.
 class PartsScreen extends ConsumerStatefulWidget {
@@ -152,13 +153,15 @@ class _PartCard extends StatelessWidget {
     return GlassCard(
       padding: EdgeInsets.zero,
       radius: 18,
+      onTap: () => context.push('/part/${p.id}'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(
           child: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
             child: Stack(fit: StackFit.expand, children: [
-              p.image == null ? placeholder : Image.network(photoUrl(p.image!), fit: BoxFit.cover, errorBuilder: (_, __, ___) => placeholder),
+              p.image == null ? placeholder : Hero(tag: 'part-${p.id}', child: Image.network(photoUrl(p.image!), fit: BoxFit.cover, errorBuilder: (_, __, ___) => placeholder)),
               if (!p.inStock) Container(color: Colors.white70, alignment: Alignment.center, child: const Text('Out of stock', style: TextStyle(fontWeight: FontWeight.w800, color: Brand.stopped))),
+              Positioned(right: 0, top: 0, child: LikeButton(p.id, size: 20, backdrop: true)),
             ]),
           ),
         ),

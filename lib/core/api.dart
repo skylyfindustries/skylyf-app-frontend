@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'device.dart';
 import 'passkey.dart';
 
-/// Android emulator reaches the host machine at 10.0.2.2. Override: --dart-define=API_URL=https://...
-const apiUrl = String.fromEnvironment('API_URL', defaultValue: 'http://10.0.2.2:4000/api/v1');
+/// The deployed backend. For a local server override it: --dart-define=API_URL=http://10.0.2.2:4000/api/v1 (10.0.2.2 = the host PC from the Android emulator).
+/// Default is the host PC: on Android "localhost" is the emulator itself, so use 10.0.2.2 there.
+final apiUrl = const String.fromEnvironment('API_URL').isNotEmpty
+    ? const String.fromEnvironment('API_URL')
+    : 'http://${!kIsWeb && defaultTargetPlatform == TargetPlatform.android ? '10.0.2.2' : 'localhost'}:4000/api/v1';
 
 /// Full URL of an uploaded machine photo (the API returns paths like /api/v1/uploads/x.jpg).
 String photoUrl(String path) => Uri.parse(apiUrl).resolve(path).toString();
@@ -150,6 +154,7 @@ class Api {
   Future<dynamic> post(String path, Map<String, dynamic> data) => _call(() => _dio.post(path, data: data));
   /// multipart upload (photo, documents)
   Future<dynamic> postForm(String path, FormData form) => _call(() => _dio.post(path, data: form, options: Options(sendTimeout: const Duration(minutes: 2))));
+  Future<dynamic> put(String path, Map<String, dynamic> data) => _call(() => _dio.put(path, data: data));
   Future<dynamic> delete(String path) => _call(() => _dio.delete(path));
   Future<dynamic> patch(String path, Map<String, dynamic> data) => _call(() => _dio.patch(path, data: data));
 

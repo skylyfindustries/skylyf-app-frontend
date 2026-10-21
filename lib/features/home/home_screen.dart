@@ -8,6 +8,7 @@ import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import 'home_extras.dart';
 
 String _greeting() {
   final h = DateTime.now().hour;
@@ -47,6 +48,12 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(height: 12),
             _Production(d, t("Today's Production")).reveal(2),
             const SizedBox(height: 12),
+            const ProductionGraph().reveal(2),
+            const SizedBox(height: 12),
+            ProductionGraph(kind: 'packages', title: 'Packages completed', total: d.packagesToday).reveal(2),
+            const SizedBox(height: 12),
+            const TechnicianCarousel().reveal(3),
+            const SizedBox(height: 12),
             _Kpis(d.stats).reveal(3),
             if (d.stats.top.isNotEmpty) ...[
               const SectionTitle(LucideIcons.trendingUp, 'Top machines today').reveal(4),
@@ -57,6 +64,8 @@ class HomeScreen extends ConsumerWidget {
               GlassCard(child: Row(children: [const Icon(LucideIcons.circleCheck, color: Brand.running), const SizedBox(width: 10), Text(t('All machines OK'))])).reveal(6)
             else
               for (final (i, a) in d.attention.indexed) _AttentionRow(a, t).reveal(6 + i),
+            const SizedBox(height: 12),
+            const TechnicianStatusTable().reveal(8),
           ]),
           onRetry: () => ref.invalidate(dashboardProvider),
         ),
