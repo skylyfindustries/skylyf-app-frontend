@@ -26,6 +26,7 @@ import '../features/shell/shell.dart';
 import '../features/tasks/tasks_screen.dart';
 import '../features/staff/staff_screens.dart';
 import 'providers.dart';
+import 'analytics.dart';
 import 'role.dart';
 import 'theme.dart';
 import 'widgets.dart' show GlassPage;
@@ -38,7 +39,9 @@ final routerProvider = Provider<GoRouter>((ref) {
   ref.listen(authProvider, (_, s) => session.value = s);
   ref.onDispose(session.dispose);
 
+  final analytics = Analytics(ref.read(apiProvider));
   return GoRouter(
+    observers: [AnalyticsObserver(analytics)],
     initialLocation: '/splash',
     refreshListenable: session,
     redirect: (_, state) {

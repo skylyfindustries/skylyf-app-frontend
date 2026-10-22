@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/models.dart';
+import '../../core/providers.dart';
 
 typedef CartLine = ({Part part, int n});
 
@@ -12,6 +16,7 @@ class CartNotifier extends Notifier<Map<String, CartLine>> {
 
   /// n <= 0 removes the line; the most you can hold is the stock (max 100).
   void set(Part p, int n) {
+    final previous = state[p.id]?.n ?? 0;
     final next = {...state};
     if (n <= 0) {
       next.remove(p.id);
@@ -19,12 +24,28 @@ class CartNotifier extends Notifier<Map<String, CartLine>> {
       next[p.id] = (part: p, n: n.clamp(1, p.stock < 100 ? p.stock : 100));
     }
     state = next;
+    final type = n > previous ? 'cart_add' : 'cart_remove';
+    unawaited(
+      ref.read(apiProvider).post('/analytics/events', {
+        'events': [
+          {
+            'type': type,
+            'name': p.name,
+            'productId': p.id,
+            'productName': p.name,
+            'metadata': {'quantity': (n - previous).abs()},
+          },
+        ],
+      }),
+    );
   }
 
   void clear() => state = {};
 }
 
-final cartProvider = NotifierProvider<CartNotifier, Map<String, CartLine>>(CartNotifier.new);
+final cartProvider = NotifierProvider<CartNotifier, Map<String, CartLine>>(
+  CartNotifier.new,
+);
 
 /// Shown prices are before GST; the server adds it and is the source of truth (see GST_RATE in the backend).
 const gstRate = 0.18;
